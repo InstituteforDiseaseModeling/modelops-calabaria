@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Other stuff
+.claude/settings.local.json
+.python-version
+Calabaria-Pure-Functional-Design.md
+Calabaria_Design_v2.md
+uv.lock
