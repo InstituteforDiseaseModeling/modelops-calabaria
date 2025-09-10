@@ -84,22 +84,35 @@ foot-guns, while keeping the scientist's API ergonomic.
 
 #### The Pattern
 ```python
-# Pure functional core  
-def simulate(params: dict, seed: int, config: dict, scenario: Optional[str] = None) -> dict:
-    """Pure: output depends only on inputs (params, seed, config, scenario)"""
-    p2, c2 = apply_scenario(scenario, params, config) if scenario else (params, config)
-    raw = run_sim(build_sim(p2, seed, c2), seed)
-    return {name: extract(raw, seed) for name, extract in extractors.items()}
+# Pure functional core
+def build_state(params: dict, config: dict) -> Any:  
+    """Deterministic assembly - no RNG, no seed"""
+    # Build matrices, networks, initial conditions
+    # ALL deterministic setup happens here
+    return state
+
+def run_sim(state: Any, seed: int) -> Any:  
+    """Single RNG touchpoint - all randomness flows through seed"""
+    rng = np.random.default_rng(seed)
+    # Run simulation using pre-built state
+    return raw_output
 
 # Pragmatic OO facade
-class Model:
-    """Stateful wrapper with pure simulate() method"""
+class Model(BaseModel):
+    DEFAULT_SCENARIO = "conservative"  # Configurable default
+    
+    def build_state(self, params: ParameterSet, config: Mapping[str, Any]) -> Any:
+        """Implement deterministic assembly"""
+        return {...}  # No seed parameter!
+    
+    def run_sim(self, state: Any, seed: int) -> RawSimOutput:
+        """Implement stochastic execution"""
+        return {...}  # Single seed touchpoint
+    
     @final
-    def simulate(self, params: ParameterSet, seed: int, scenario: Optional[str] = None):
-        """Pure method: output depends only on arguments"""
-        p2, c2 = self._apply_scenario(scenario, params, self.base_config)
-        raw = self.run_sim(self.build_sim(p2, seed, c2), seed)
-        return {name: fn(raw, seed) for name, fn in self.get_extractors().items()}
+    def simulate(self, params: ParameterSet, seed: int):
+        """Uses DEFAULT_SCENARIO compiled closure under the hood"""
+        return super().simulate(params, seed)
 ```
 
 ### 2. Core Types & Parameter System
@@ -187,6 +200,14 @@ from typing import Protocol
 class Transform(Protocol):
     def forward(self, x: float) -> float: ...
     def backward(self, y: float) -> float: ...
+
+@dataclass(frozen=True)
+class Identity:
+    """Identity transform for untransformed parameters."""
+    def forward(self, x: float) -> float: 
+        return float(x)
+    def backward(self, y: float) -> float: 
+        return float(y)
 
 @dataclass(frozen=True)
 class AffineSqueezedLogit:
@@ -693,92 +714,35 @@ The key insight: **ALL randomness flows through `run_sim`'s seed parameter**. Th
 3. State building can be expensive (it's cached via params hash)
 4. Multiple seeds can reuse the same built state efficiently
 
-#### Compiled Simulation Functions
+#### Bundle Compilation Helper
 ```python
-from dataclasses import dataclass
-from typing import Dict, Optional
-import io, importlib
-
-Scalar = bool | int | float | str
-
-def _load_model_class(path: str):
-    """Load a model class from module:ClassName path."""
-    mod, cls = path.split(":")
-    m = importlib.import_module(mod)
-    return getattr(m, cls)
-
-def _to_ipc(df: pl.DataFrame) -> bytes:
-    """Convert DataFrame to Arrow IPC bytes."""
-    bio = io.BytesIO()
-    df.write_ipc(bio)
-    bio.seek(0)  # Ensure at start
-    return bio.getvalue()
-
-@dataclass(frozen=True)
-class CompiledSimulationFunction:
-    """Pure callable matching SimulationFunction protocol.
-    
-    Scenario and outputs are curried in at compile time, keeping
-    the call signature clean: (params, seed) -> Dict[str, bytes]
+def compile_bundle(*, bundle_ref: str, model_cls_path: str) -> dict[str, Callable[[dict, int], dict[str, bytes]]]:
     """
-    model_cls_path: str                           # e.g. "sir_model:SIRModel"
-    scenario: Optional[str]                       # e.g. "baseline" or None
-    outputs: Optional[tuple[OutputName, ...]]     # None = all outputs
+    Compile all scenarios from a model into wire-format functions.
     
-    def __post_init__(self):
-        # Normalize outputs to tuple for consistent hashing
-        if self.outputs is not None and not isinstance(self.outputs, tuple):
-            object.__setattr__(self, 'outputs', tuple(self.outputs))
-
-    def __call__(self, params: Dict[str, Scalar], seed: int) -> Dict[str, bytes]:
-        """Execute simulation matching SimulationFunction protocol."""
-        # TODO: Add bundle path isolation when needed
-        # For MVP, rely on correct environment setup
-        Model = _load_model_class(self.model_cls_path)
-        model: BaseModel = Model()
-        
-        # Run simulation without extraction
-        raw = model.simulate_raw(
-            ParameterSet(values=params), 
-            seed, 
-            scenario=self.scenario
-        )
-        
-        # Extract outputs (filtered by curried outputs)
-        dfs = model.extract(raw, seed, outputs=self.outputs)
-        
-        # Convert to Arrow IPC
-        return {name: _to_ipc(df) for name, df in dfs.items()}
-
-def compile_bundle(*, bundle_ref: str, model_cls_path: str) -> Dict[EntryPointId, CompiledSimulationFunction]:
+    Returns: {entrypoint_id: (params_dict, seed) -> {name: Arrow IPC bytes}}
     """
-    Compile simulation functions for all scenarios.
+    import importlib
+    from modelops_contracts.entrypoint import format_entrypoint
     
-    Returns a dictionary mapping entrypoint IDs to compiled functions.
-    Each function has scenario curried in, with outputs=None (all outputs).
-    The bridge can create filtered versions on demand if needed.
-    """
-    from modelops_contracts.entrypoint import format_entrypoint, EntryPointId
+    # Load model class
+    mod, cls = model_cls_path.split(":")
+    Model = getattr(importlib.import_module(mod), cls)
+    model: BaseModel = Model()
     
-    # Load model to discover scenarios
-    Model = _load_model_class(model_cls_path)
-    model = Model()
-    scenarios = ["baseline"] + list(model.scenarios())
+    # Get all compiled scenarios
+    fns = model.compile_all()  # {scenario: (params, seed) -> bytes}
     
-    # Compile one function per scenario
-    out: Dict[EntryPointId, CompiledSimulationFunction] = {}
-    for sc in scenarios:
-        # Use proper entrypoint formatting
+    # Create entrypoint IDs for each scenario
+    out = {}
+    for sc, fn in fns.items():
         eid = format_entrypoint(
-            import_path=model_cls_path.replace(':', '.'),
+            import_path=model_cls_path.replace(":", "."),
             scenario=sc,
             oci_digest=bundle_ref
         )
-        out[eid] = CompiledSimulationFunction(
-            model_cls_path=model_cls_path,
-            scenario=None if sc == "baseline" else sc,
-            outputs=None  # All outputs by default
-        )
+        out[eid] = fn  # Already returns Arrow IPC bytes
+    
     return out
 ```
 
@@ -803,9 +767,18 @@ No ad-hoc string splitting!
 #### Local Development Without ModelOps
 ```python
 # Local testing: run without any ModelOps dependency
-from calabaria.compile import compile_bundle
+from sir_model import SIRModel
 
-# Compile all entrypoints from a model
+# Create model and explore scenarios
+model = SIRModel()
+
+# Already includes the default scenario (whatever it's named)
+scenarios = list(model.scenarios())
+print(f"Available scenarios: {scenarios}")
+# Output: ['aggressive', 'conservative', 'lockdown', 'vaccination']
+
+# Compile all scenarios to wire functions
+from calabaria.compile import compile_bundle
 idx = compile_bundle(
     bundle_ref="sha256:abc123...",  # OCI digest
     model_cls_path="sir_model:SIRModel"
@@ -814,13 +787,15 @@ idx = compile_bundle(
 # List available entrypoints
 for entrypoint_id in idx:
     print(entrypoint_id)
-# Output:
-# sir_model.SIRModel/baseline@abc123def456
+# Output (note: includes model's DEFAULT_SCENARIO, not hardcoded 'baseline'):
+# sir_model.SIRModel/conservative@abc123def456
+# sir_model.SIRModel/aggressive@abc123def456
 # sir_model.SIRModel/lockdown@abc123def456
 # sir_model.SIRModel/vaccination@abc123def456
 
 # Execute a simulation function directly
-sim_fn = idx["sir_model.SIRModel/baseline@abc123def456"]
+# Using the model's DEFAULT_SCENARIO (conservative in this example)
+sim_fn = idx["sir_model.SIRModel/conservative@abc123def456"]
 ipc_outputs = sim_fn(
     params={"beta": 0.4, "gamma": 0.1},
     seed=7
@@ -1375,34 +1350,31 @@ class CalibrationSpec:
 
 #### Compilation Strategies
 
-**Strategy 1: Runtime Resolution** (Default for MVP)
+**Default (MVP): Compile-Time Resolution**
 ```python
-# Bundle contains model class with all scenarios
-# Runtime selects which scenario to apply
-
-def simulation_entry_point(params: Dict[str, Scalar], seed: int, 
-                          scenario: str = "baseline") -> SimReturn:
-    """Generic entry point that dispatches to scenario"""
-    model = load_model_from_bundle()
-    pset = ParameterSet(values=params)
-    outputs = model.simulate(pset, seed, scenario=scenario)
-    return serialize_outputs(outputs)
-```
-
-**Strategy 2: Compile-Time Resolution** (Optimization)
-```python
-# Bundle contains pre-compiled functions per scenario
-# Each scenario gets its own entry point
+# Each scenario compiles to a distinct entrypoint
+# No runtime scenario parameter - cleaner provenance
 
 class ScenarioCompiler:
     def compile_all(self, model: BaseModel) -> Dict[str, Callable]:
         """Generate standalone functions for each scenario"""
-        compiled = {}
-        for scenario_name in model.scenarios():
-            sim = model.compile_scenario(scenario_name)
-            ref = f"{model.__class__.__name__}:{scenario_name}"
-            compiled[ref] = sim
-        return compiled
+        return model.compile_all()  # Returns {scenario: (params, seed) -> bytes}
+
+# Each entrypoint has signature: (params_dict, seed) -> {name: arrow_bytes}
+# E.g., "model.Class/conservative@abc123" is a distinct function
+```
+
+**Alternative (not MVP): Runtime Resolution**
+```python
+# Single entry point that dispatches to scenario at runtime
+# More complex provenance tracking, not recommended
+
+def simulation_entry_point(params: Dict[str, Scalar], seed: int, 
+                          scenario: str) -> SimReturn:
+    """Generic entry point that dispatches to scenario"""
+    model = load_model_from_bundle()
+    # Would need runtime scenario switching - more complex
+    # Not the recommended approach
 
 # Results in bundle with multiple entry points:
 # - my_model:baseline
@@ -1423,46 +1395,53 @@ Bundles are OCI artifacts containing Python packages with:
 #### CalabariaBridge Execution
 ```python
 class CalabariaBridge:
-    """Executes CompiledSimulationFunctions in ModelOps infrastructure.
+    """Executes compiled simulation functions in ModelOps infrastructure.
     
-    Handles dynamic compilation with output filtering and CAS storage.
+    Handles function caching, output filtering, and CAS storage.
     """
     
     def __init__(self, cas_client: CasClient, threshold_bytes: int = 512_000):
         self.cas = cas_client
         self.threshold = threshold_bytes
-        self._function_cache: Dict[str, CompiledSimulationFunction] = {}
+        self._function_cache: Dict[str, Callable] = {}
     
-    def _get_or_compile_function(self, task: SimTask) -> CompiledSimulationFunction:
-        """Get cached or compile new function with output filtering."""
-        # Create cache key including outputs
-        cache_key = f"{task.entrypoint}#{hash(task.outputs) if task.outputs else 'all'}"
+    def _get_or_compile_function(self, task: SimTask) -> Callable:
+        """Get cached or compile new function."""
+        # Cache by entrypoint only (filtering happens after execution)
+        cache_key = str(task.entrypoint)
         
         if cache_key not in self._function_cache:
-            # Parse entrypoint: "sir_model.SIRModel/baseline@abc123"
-            model_path, scenario_digest = task.entrypoint.rsplit("/", 1)
-            scenario, _ = scenario_digest.split("@")
+            # Parse entrypoint and load model
+            from modelops_contracts import parse_entrypoint
+            import_path, scenario, _ = parse_entrypoint(task.entrypoint)
             
-            # Create function with curried outputs
-            fn = CompiledSimulationFunction(
-                model_cls_path=model_path.replace(".", ":", 1),
-                scenario=None if scenario == "baseline" else scenario,
-                outputs=tuple(task.outputs) if task.outputs else None
-            )
-            self._function_cache[cache_key] = fn
+            # Load model and get compiled function for scenario
+            mod_path, cls_name = import_path.rsplit(".", 1)
+            import importlib
+            Model = getattr(importlib.import_module(mod_path), cls_name)
+            model = Model()
+            
+            # Get the compiled function for this scenario
+            fns = model.compile_all()
+            self._function_cache[cache_key] = fns[scenario]
         
         return self._function_cache[cache_key]
     
     def execute_task(self, task: SimTask) -> SimReturn:
         """Execute a SimTask using compiled simulation function."""
-        # Get function with outputs curried in
+        # Get compiled function
         fn = self._get_or_compile_function(task)
         
-        # Execute (outputs already filtered by curried function)
+        # Execute simulation
         ipc_outputs = fn(
-            params=task.params.params,
+            params=dict(task.params.params),
             seed=task.seed
         )
+        
+        # Filter outputs if specified in task
+        if task.outputs:
+            wanted = set(task.outputs)
+            ipc_outputs = {k: v for k, v in ipc_outputs.items() if k in wanted}
         
         # Store outputs (inline vs CAS based on size)
         artifacts = {}
@@ -1495,22 +1474,26 @@ class CalabariaBridge:
 
 #### Calibration Integration
 
+By convention, calibrations run against the model's DEFAULT_SCENARIO. Use whichever name the model sets (e.g., "conservative", "status_quo", "baseline").
+
 ```python
-# During calibration - use baseline entrypoint only
-def run_calibration(algo: AdaptiveAlgorithm, bridge: CalabariaBridge):
-    """Run calibration using baseline scenario"""
+# During calibration - use model's DEFAULT_SCENARIO entrypoint
+def run_calibration(algo: AdaptiveAlgorithm, bridge: CalabariaBridge, model_class):
+    """Run calibration using model's default scenario"""
     bundle_ref = "sha256:abc123..."
-    baseline_entrypoint = "sir_model.SIRModel/baseline@abc123def456"
+    # Get the actual default scenario name from the model
+    default_scenario = model_class.DEFAULT_SCENARIO
+    default_entrypoint = f"sir_model.SIRModel/{default_scenario}@abc123def456"
     
     for _ in range(max_iters):
         # Ask for proposals
         proposals = algo.ask(n=10)
         
-        # Submit baseline simulations
+        # Submit simulations using default scenario
         tasks = [
             SimTask(
                 bundle_ref=bundle_ref,
-                entrypoint=baseline_entrypoint,  # Always baseline for calibration
+                entrypoint=default_entrypoint,  # Use model's default scenario
                 params=prop,
                 seed=42
             )
@@ -2043,8 +2026,8 @@ class SIRModel(BaseModel):
             doc="Reduce beta by 65%"
         )
     
-    def build_sim(self, params, seed, config):
-        # Build initial simulation state
+    def build_state(self, params, config):
+        # Build initial simulation state (NO SEED!)
         ...
     
     def run_sim(self, sim, seed):
@@ -2105,30 +2088,32 @@ def test_provenance_deterministic():
 
 #### Extractor Order Stability
 ```python
-def test_extractor_order_stable():
-    """Extractors have deterministic order across instances."""
-    model1 = SIRModel()
-    model2 = SIRModel()
-    assert list(model1.get_extractors().keys()) == list(model2.get_extractors().keys())
+def test_output_order_stable():
+    """Output order is deterministic across instances."""
+    m1, m2 = SIRModel(), SIRModel()
+    assert list(m1.outputs()) == list(m2.outputs())
 ```
 
 #### Selective Extraction Equivalence
 ```python
-def test_extraction_equivalence():
-    """extract(all) == union of extract(subsets)"""
-    model = SIRModel()
-    params = ParameterSet(values={"beta": 0.5, "gamma": 0.1})
-    raw = model.simulate_raw(params, seed=42)
+def test_filtered_outputs_equivalence():
+    """Infrastructure-level filtering should match direct filtering"""
+    m = SIRModel()
+    fn = m.compile_scenario(m.DEFAULT_SCENARIO)
+    params = {"beta": 0.5, "gamma": 0.1}
+    seed = 42
     
     # Get all outputs
-    all_outputs = model.extract(raw, seed=42)
+    all_ipc = fn(params, seed)
     
-    # Get subsets
-    subset1 = model.extract(raw, seed=42, outputs=("prevalence",))
-    subset2 = model.extract(raw, seed=42, outputs=("peak",))
+    # Filter to subset (simulating what infrastructure does with task.outputs)
+    subset_names = {"prevalence", "peak"}
+    filtered_ipc = {k: v for k, v in all_ipc.items() if k in subset_names}
     
-    # Should be equivalent
-    assert all_outputs == {**subset1, **subset2}
+    # SimTask.outputs causes infra to filter; ensure bytes match direct filtering
+    assert set(filtered_ipc.keys()) == subset_names
+    assert filtered_ipc["prevalence"] == all_ipc["prevalence"]
+    assert filtered_ipc["peak"] == all_ipc["peak"]
 ```
 
 #### Task ID Semantics
@@ -2162,17 +2147,20 @@ def test_task_id_semantics():
 
 #### Determinism Property Test
 ```python
-@given(seed=st.integers(0, 2**64-1))
-def test_simulate_deterministic(seed):
+def test_simulate_deterministic():
     """Same inputs always produce same outputs."""
-    model = SIRModel()
-    params = ParameterSet(values={"beta": 0.5, "gamma": 0.1})
+    m = SIRModel()
+    fn = m.compile_scenario(m.DEFAULT_SCENARIO)
+    params = {"beta": 0.5, "gamma": 0.1}
+    seed = 123
     
-    raw1 = model.simulate_raw(params, seed, scenario="baseline")
-    raw2 = model.simulate_raw(params, seed, scenario="baseline")
+    # Run twice with same inputs
+    a, b = fn(params, seed), fn(params, seed)
     
-    # Should be identical (or use appropriate comparison for raw output)
-    assert raw1 == raw2
+    # Should be identical
+    assert a.keys() == b.keys()
+    for k in a:
+        assert a[k] == b[k]  # Byte-for-byte identical
 ```
 
 ### 13. Phase 5: Integration & Testing (Week 5-6)
