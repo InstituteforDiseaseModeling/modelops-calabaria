@@ -150,6 +150,16 @@ class ParameterSpace:
 @dataclass(frozen=True)
 class ParameterSet:
     values: Dict[str, Scalar]  # Immutable parameter assignment
+    
+    def __getitem__(self, k: str) -> Scalar:
+        """Allow dict-style access to parameter values."""
+        return self.values[k]
+    
+    def with_updates(self, **updates: Scalar) -> "ParameterSet":
+        """Create new ParameterSet with updated values (immutable update)."""
+        d = dict(self.values)
+        d.update(updates)
+        return ParameterSet(d)
 
 @dataclass(frozen=True)
 class ParameterView:
@@ -245,13 +255,27 @@ Scenario: (ParameterSet, Config) -> (ParameterSet', Config')
 - **A scenario is side-effect free and deterministic** (hence why *no seed is
   passed in*.
 
+**Why Callable Transforms?**
+
+Scenarios use `Callable` transforms instead of static dicts for maximum expressiveness:
+- **Relative changes**: `lambda p: {**p, "beta": p["beta"] * 0.3}` (70% reduction)
+- **Conditional logic**: `lambda p: {**p, "beta": 0.1 if p["gamma"] > 0.5 else p["beta"]}`
+- **Complex relationships**: Any parameter interdependencies can be encoded
+- **External data**: `lambda c: {**c, "contact_matrix": load_matrix()}`
+
+At compile time, these transforms are "baked in" to create distinct functions.
 
 ```python
 @dataclass(frozen=True)
 class ScenarioSpec:
+    """Pure transform specification for a scenario.
+    
+    A scenario is a pure transformation: (ParameterSet, Config) → (ParameterSet', Config')
+    This covers engine switches (config patches) and parameter overrides.
+    """
     name: str
-    config_patch: Optional[Dict[str, Any]] = None     # Config overrides
-    param_patch: Optional[Dict[str, Scalar]] = None   # Parameter overrides
+    patch_params: Callable[[ParameterSet], ParameterSet] = lambda x: x  # identity
+    patch_config: Callable[[Mapping[str, Any]], Mapping[str, Any]] = lambda x: x  # identity
     doc: str = ""
 ```
 
@@ -282,159 +306,392 @@ def model_scenario(name: str):
 #### Base Model Interface
 
 ```python
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import final, Sequence, Mapping, Callable
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple, Union, final
 from types import MappingProxyType
+import io
 import polars as pl
+import numpy as np
 
-# Type alias for outputs (can extend to handles later)
+# Type aliases
+Scalar = Union[bool, int, float, str]
+RawSimOutput = Any  # Backend-specific raw output
 OutputTable = pl.DataFrame
 
 class BaseModel(ABC):
-    """Pure functional model with OO facade.
+    """Pure functional model with pragmatic facade.
     
-    Core computation is pure and provenance-driven. Subclasses customize
-    via build_sim, run_sim, and output extractors. The simulate() method
-    is final to preserve the pure functional contract.
+    Key design principles:
+    • build_state(params, config) → state: Deterministic assembly (NO seed)
+    • run_sim(state, seed) → raw: Single RNG touchpoint, all randomness here
+    • Scenarios compile to entrypoints, not runtime parameters
+    • simulate() uses DEFAULT_SCENARIO via compiled closure for dev/prod parity
+    • Registry freezes (seals) on first use to protect provenance
     
-    Note: BaseModel is not a frozen dataclass because:
-    - It's an ABC meant for subclassing
-    - Instance-level scenario registry needs mutability
-    - The important immutability is enforced on inputs
+    Engineering Choices:
+    - Seal-on-first-use: More flexible than immediate freezing
+    - DEFAULT_SCENARIO: Configurable class attribute, no "baseline" magic
+    - Stable ordering: Sort by name for deterministic behavior
+    - Uniform compilation: No special cases in compile logic
     """
     
+    # Adjustable default scenario name (subclasses can override)
+    DEFAULT_SCENARIO: str = "baseline"
+    
     def __init__(self, space: ParameterSpace, base_config: Mapping[str, Any]):
-        self.space = space  # Already immutable
-        self.base_config = MappingProxyType(dict(base_config))  # Make immutable
-        self._scenarios: Dict[str, ScenarioSpec] = {}  # Mutable for registration
+        # Immutable inputs
+        self.space: ParameterSpace = space
+        self.base_config: Mapping[str, Any] = MappingProxyType(dict(base_config))
         
-        # Auto-discover decorated scenarios
-        for attr in dir(self):
+        # Registries (mutable until sealed)
+        self._scenarios: Dict[str, ScenarioSpec] = {}
+        self._outputs: Dict[str, Callable[[RawSimOutput, int], pl.DataFrame]] = {}
+        self._sealed: bool = False
+        
+        # Register an identity scenario under DEFAULT_SCENARIO
+        self._scenarios[self.DEFAULT_SCENARIO] = ScenarioSpec(
+            name=self.DEFAULT_SCENARIO,
+            patch_params=lambda x: x,  # identity
+            patch_config=lambda x: x,  # identity
+            doc=f"Default {self.DEFAULT_SCENARIO} scenario with no modifications"
+        )
+        
+        # Subclass hook to tweak scenarios before discovery
+        self.setup_scenarios()
+        
+        # Auto-discover decorated scenarios/outputs with stable ordering by name
+        for attr in sorted(dir(self)):
             fn = getattr(self, attr)
-            if callable(fn) and getattr(fn, "_is_model_scenario", False):
-                spec = fn()  # Call to get ScenarioSpec
-                self._scenarios[spec.name] = spec
+            if callable(fn):
+                if getattr(fn, "_is_model_scenario", False):
+                    spec = fn()  # Returns ScenarioSpec
+                    self._scenarios[spec.name] = spec
+                elif getattr(fn, "_is_model_output", False):
+                    name = getattr(fn, "_output_name")
+                    self._outputs[name] = fn
     
-    # --- Subclass responsibilities ---
+    # ----- Subclass responsibilities -----
     @abstractmethod
-    def build_sim(self, params: ParameterSet, seed: int, config: Mapping[str, Any]) -> Any:
-        """Build simulation state (pure)."""
+    def build_state(self, params: ParameterSet, config: Mapping[str, Any]) -> Any:
+        """Deterministic assembly. No RNG. No seed.
+        
+        This is pure assembly - matrices, schedules, initial conditions.
+        All randomness happens in run_sim, not here.
+        """
         ...
     
     @abstractmethod
-    def run_sim(self, sim: Any, seed: int) -> RawSimOutput:
-        """Run simulation (pure), returns raw backend object."""
+    def run_sim(self, state: Any, seed: int) -> RawSimOutput:
+        """Execute stochastic/deterministic sim. RNG boundary lives here.
+        
+        All randomness derives from this seed via SeedSequence if needed.
+        Returns backend-specific raw output.
+        """
         ...
     
-    # --- Extractor registry (auto-discovered by decorator) ---
-    @final
-    def get_extractors(self) -> Dict[OutputName, Callable[[RawSimOutput, int], OutputTable]]:
-        """Auto-discover extractors with deterministic ordering by source line."""
-        import collections
-        
-        items = []
-        for attr in sorted(dir(self)):  # Sort dir() for determinism
-            fn = getattr(self, attr)
-            if callable(fn) and getattr(fn, "_is_model_output", False):
-                # Get source line for stable ordering
-                code = getattr(fn, "__code__", None)
-                line = code.co_firstlineno if code else 999999
-                items.append((getattr(fn, "_output_name"), line, fn))
-        
-        # Sort by source line, then name for stability
-        items.sort(key=lambda t: (t[1], t[0]))
-        return collections.OrderedDict((name, fn) for name, _, fn in items)
+    @property
+    @abstractmethod
+    def __version__(self) -> str:
+        """Human semantic version for the model (bundle digest is still source of truth)."""
+        ...
     
-    # --- Scenario registry ---
-    @final
-    def register_scenario(self, spec: ScenarioSpec) -> "BaseModel":
-        """Register a scenario programmatically."""
-        self._scenarios = {**self._scenarios, spec.name: spec}
+    # Optional: subclasses may mutate _scenarios here only (pre-seal)
+    def setup_scenarios(self) -> None:
+        """Hook for subclasses to customize scenarios during init.
+        
+        Called exactly once during __init__ after DEFAULT_SCENARIO is registered
+        but before scenarios are frozen. This is the ONLY place to programmatically
+        modify scenarios (decorated scenarios are added after this).
+        """
+        pass
+    
+    
+    # ----- Registry management (mutable until first use) -----
+    def add_scenario(self, spec: ScenarioSpec) -> "BaseModel":
+        """Register a scenario programmatically (before sealing only)."""
+        self._ensure_not_sealed("add_scenario")
+        self._scenarios[spec.name] = spec
+        return self
+    
+    def add_model_output(self, name: str,
+                         fn: Callable[[RawSimOutput, int], pl.DataFrame]) -> "BaseModel":
+        """Register an output extractor programmatically (before sealing only)."""
+        self._ensure_not_sealed("add_model_output")
+        self._outputs[name] = fn
         return self
     
     def scenarios(self) -> Sequence[str]:
-        """List available scenarios."""
+        """All scenario names (includes DEFAULT_SCENARIO)."""
         return sorted(self._scenarios.keys())
     
-    # --- Pure scenario application ---
+    def outputs(self) -> Sequence[str]:
+        """All output names (stable order by name)."""
+        return sorted(self._outputs.keys())
+    
+    @property
+    def is_sealed(self) -> bool:
+        """Check if model registries are sealed."""
+        return self._sealed
+    
+    # ----- Dev convenience (uses compiled closure → prod parity) -----
     @final
-    def _apply_scenario(self, name: Optional[str], pset: ParameterSet, 
-                       config: Mapping[str, Any]) -> tuple[ParameterSet, Mapping[str, Any]]:
-        """Apply scenario patches to parameters and config."""
-        if not name:
-            return pset, config
-        
-        spec = self._scenarios[name]
-        
-        # Apply parameter patch
-        new_vals = dict(pset.values)
-        if spec.param_patch:
-            new_vals.update(spec.param_patch)
-        new_pset = ParameterSet(values=new_vals)
-        
-        # Apply config patch
-        new_cfg = dict(config)
-        if spec.config_patch:
-            new_cfg.update(spec.config_patch)
-        
-        return new_pset, new_cfg
+    def simulate(self, params: ParameterSet, seed: int) -> Dict[str, pl.DataFrame]:
+        """Run DEFAULT_SCENARIO and return DataFrames."""
+        return self.simulate_scenario(self.DEFAULT_SCENARIO, params, seed)
     
-    # --- Pure run-only path (build_sim + run_sim), no extraction ---
     @final
-    def simulate_raw(self, pset: ParameterSet, seed: int,
-                     scenario: Optional[str] = None) -> RawSimOutput:
-        """Run the model without extracting outputs (pure)."""
-        p2, c2 = self._apply_scenario(scenario, pset, self.base_config)
-        return self.run_sim(self.build_sim(p2, seed, c2), seed)
+    def simulate_scenario(self, scenario: str,
+                          params: ParameterSet, seed: int) -> Dict[str, pl.DataFrame]:
+        """Run named scenario and return DataFrames."""
+        fn = self.compile_scenario(scenario)  # (dict, seed) -> {name: bytes}
+        ipc = fn(dict(params.values), seed)
+        return {k: pl.read_ipc(io.BytesIO(v)) for k, v in ipc.items()}
     
-    # --- Selective extraction (subset of outputs), pure ---
+    # ----- Compilation to wire functions (entrypoints) -----
     @final
-    def extract(self, raw: RawSimOutput, seed: int,
-                outputs: Optional[tuple[OutputName, ...]] = None) -> Dict[OutputName, OutputTable]:
-        """Extract a subset of outputs (None = all).
+    def compile_scenario(self, scenario: Optional[str]) \
+            -> Callable[[Dict[str, Scalar], int], Dict[str, bytes]]:
+        """Compile a scenario to (params_dict, seed) -> {name: Arrow IPC bytes}."""
+        self._seal()
+        sc = scenario or self.DEFAULT_SCENARIO
+        if sc not in self._scenarios:
+            raise ValueError(f"Unknown scenario '{sc}'. Available: {self.scenarios()}")
         
-        **Output Extractor Discipline**: Extractors must be cheap!
-        - Pure projections or aggregations only
-        - Heavy computation belongs in run_sim()
-        - Should be O(n) or better on raw output size
-        - This makes selective output filtering actually save resources
-        """
-        ex = self.get_extractors()
-        if outputs is None:
-            names = tuple(ex.keys())
-        else:
-            # Validate requested outputs exist
-            unknown = set(outputs) - set(ex.keys())
-            if unknown:
-                available = ", ".join(sorted(ex.keys()))
-                raise ValueError(f"Unknown outputs {unknown}. Available: {available}")
-            names = outputs
-        return {name: ex[name](raw, seed) for name in names}
+        spec = self._scenarios[sc]
+        output_names = tuple(self.outputs())  # Stable order snapshot
+        
+        def fn(params_dict: Dict[str, Scalar], seed: int) -> Dict[str, bytes]:
+            pset = ParameterSet(values=dict(params_dict))
+            pset2 = spec.patch_params(pset)
+            cfg2 = spec.patch_config(self.base_config)
+            
+            state = self.build_state(pset2, cfg2)     # Deterministic
+            raw = self.run_sim(state, seed)           # RNG touchpoint
+            
+            out: Dict[str, bytes] = {}
+            for name in output_names:
+                df = self._outputs[name](raw, seed)   # Should be cheap
+                bio = io.BytesIO()
+                df.write_ipc(bio)
+                out[name] = bio.getvalue()
+            return out
+        
+        return fn
     
-    # --- Pure simulate: convenience = raw + all extractors ---
     @final
-    def simulate(self, pset: ParameterSet, seed: int,
-                 scenario: Optional[str] = None) -> Dict[str, pl.DataFrame]:
-        """Pure simulation with optional scenario (convenience method)."""
-        raw = self.simulate_raw(pset, seed, scenario)
-        return self.extract(raw, seed, outputs=None)
+    def compile_all(self) -> Dict[str, Callable[[Dict[str, Scalar], int], Dict[str, bytes]]]:
+        """One entrypoint per scenario."""
+        self._seal()
+        return {sc: self.compile_scenario(sc) for sc in self.scenarios()}
     
-    def compile_scenario(self, scenario_name: str) -> "CompiledSimulation":
-        """Compile scenario into standalone simulation function."""
-        spec = self._scenarios.get(scenario_name)
-        if not spec:
-            raise ValueError(f"Unknown scenario: {scenario_name}")
-        return CompiledSimulation(
-            model_class=self.__class__,
-            space=self.space,
-            base_config=dict(self.base_config),  # Convert back to dict
-            scenario_spec=spec
-        )
-    
+    # ----- Provenance helpers -----
     def model_identity(self) -> str:
-        """Stable identity string for provenance."""
-        return f"{self.__module__}.{self.__class__.__name__}:{self.__version__}"
+        """Stable-ish human identity for logs & provenance text.
+        
+        Includes module, class, version, and default scenario.
+        Bundle digest remains the source of truth for caching.
+        """
+        return f"{self.__module__}.{type(self).__name__}:{self.__version__}:default={self.DEFAULT_SCENARIO}"
+    
+    # ----- Internals -----
+    def _seal(self) -> None:
+        """Freeze registries on first use to protect provenance."""
+        if not self._sealed:
+            self._scenarios = MappingProxyType(dict(self._scenarios))
+            self._outputs = MappingProxyType(dict(self._outputs))
+            self._sealed = True
+    
+    def _ensure_not_sealed(self, where: str) -> None:
+        """Check that registries haven't been sealed."""
+        if self._sealed:
+            raise RuntimeError(
+                f"{where}() not allowed after first compile/simulate; "
+                "create a new model instance to change scenarios/outputs."
+            )
+    
+    # Optional: helper for extractors that MUST subsample (discouraged)
+    @staticmethod
+    def _rng_for_output(seed: int, output_name: str):
+        """Namespaced RNG: stable per (seed, output_name). Use rarely.
+        
+        If you must subsample in an extractor, use this for determinism.
+        But consider this a code smell - heavy computation belongs in run_sim.
+        
+        Example:
+            rng = BaseModel._rng_for_output(seed, "prevalence_subsample")
+            idx = rng.choice(n, size=100, replace=False)
+        """
+        # Derive a deterministic child seed from (seed, name)
+        s = int(np.uint64(hash(output_name)) ^ np.uint64(seed))
+        return np.random.default_rng(s)
 ```
+
+#### Engineering Rationale: Why This Design?
+
+**1. Seal-on-First-Use Pattern**
+
+Instead of freezing registries immediately in `__init__`, we seal on first `compile()` or `simulate()`:
+
+```python
+def _seal(self) -> None:
+    if not self._sealed:
+        self._scenarios = MappingProxyType(dict(self._scenarios))
+        self._outputs = MappingProxyType(dict(self._outputs))
+        self._sealed = True
+```
+
+Benefits:
+- **Flexibility**: Can add scenarios programmatically after construction
+- **Safety**: Once simulation starts, configuration is immutable
+- **Clear contract**: "Mutate before use, immutable after"
+- **Better error messages**: Explicit RuntimeError explains why mutations fail
+
+**2. Configurable DEFAULT_SCENARIO**
+
+No hardcoded "baseline" string - it's a class attribute:
+
+```python
+DEFAULT_SCENARIO: str = "baseline"  # Subclasses can override
+```
+
+This enables:
+- Models to define what "default" means (e.g., "conservative", "status_quo")
+- Uniform treatment - no special cases in compilation
+- Clear semantics - `simulate()` just calls `simulate_scenario(DEFAULT_SCENARIO)`
+
+**3. Stable Ordering Guarantees**
+
+All iteration uses `sorted()` for deterministic behavior:
+- `sorted(dir(self))` - Discovery order is alphabetical, not filesystem-dependent
+- `sorted(self._scenarios.keys())` - Scenario listing is predictable
+- `tuple(self.outputs())` - Output order captured at compile time
+
+This ensures:
+- **Reproducible hashes**: Same model → same discovery → same provenance
+- **No platform drift**: Linux/Mac/Windows all produce same order
+- **Cache stability**: Order changes don't invalidate caches unnecessarily
+
+**4. Scenarios as Entrypoints, Not Runtime Flags**
+
+Each scenario compiles to a distinct function with uniform signature:
+```python
+(params_dict: Dict[str, Scalar], seed: int) -> Dict[str, bytes]
+```
+
+Why not runtime parameters?
+- **Provenance clarity**: Different scenarios → different sim_root hashes
+- **Cache efficiency**: Can cache per-scenario, not per-parameter-combo
+- **Infrastructure simplicity**: One entrypoint = one simulation type
+- **Type safety**: No runtime string switching, all paths known at compile
+
+**5. Deterministic Assembly, Single RNG Touchpoint**
+
+The RNG boundary is crystal clear:
+- `build_state()`: NO seed parameter, pure deterministic assembly
+- `run_sim()`: Single seed parameter, ALL randomness flows through here
+
+Benefits:
+- **Cache reuse**: Same params → same state across all seeds
+- **Debugging**: Can test assembly separately from stochastic execution
+- **Parallelism**: Can build state once, run many seeds in parallel
+- **Clarity**: No confusion about where randomness happens
+
+**6. Extractors Should Be Cheap**
+
+Output extractors are projections/aggregations on raw output:
+```python
+@model_output("prevalence")
+def extract_prevalence(self, raw: RawSimOutput, seed: int) -> pl.DataFrame:
+    return pl.DataFrame({
+        "t": raw["t"],
+        "prevalence": raw["I"] / (raw["S"] + raw["I"] + raw["R"])
+    })
+```
+
+If subsampling is needed (discouraged), use namespaced RNG:
+```python
+rng = self._rng_for_output(seed, "prevalence_subsample")
+```
+
+This maintains determinism while marking the pattern as a code smell.
+
+**7. __version__ vs Bundle Digest**
+
+- `__version__`: Human-readable semantic version for logs and debugging
+- Bundle digest: Cryptographic truth for caching and provenance
+
+The model identity includes both:
+```python
+f"{module}.{class}:{version}:default={DEFAULT_SCENARIO}"
+```
+
+This gives humans context while infrastructure uses the digest.
+
+#### RNG Boundary Patterns
+
+The clean separation between `build_state` (deterministic) and `run_sim` (stochastic) enables different simulation engines:
+
+**Pattern A: Agent-Based Model with NetworkX**
+```python
+def build_state(self, params: ParameterSet, config: Mapping[str, Any]) -> nx.Graph:
+    """Build network deterministically from parameters."""
+    G = nx.erdos_renyi_graph(
+        n=int(params["n_agents"]), 
+        p=params["connectivity"],
+        seed=42  # FIXED seed for deterministic structure
+    )
+    for node in G.nodes():
+        G.nodes[node]["infected"] = False
+    return G
+
+def run_sim(self, state: nx.Graph, seed: int) -> RawSimOutput:
+    """Run stochastic simulation on fixed network."""
+    rng = np.random.default_rng(seed)
+    G = state.copy()  # Don't mutate input
+    # Seed initial infections stochastically
+    initial = rng.choice(list(G.nodes), size=5, replace=False)
+    for node in initial:
+        G.nodes[node]["infected"] = True
+    # Run simulation...
+```
+
+**Pattern B: Compartmental Model with Pre-computed Matrices**
+```python
+def build_state(self, params: ParameterSet, config: Mapping[str, Any]) -> Dict:
+    """Pre-compute all transition matrices deterministically."""
+    return {
+        "transition_matrix": compute_transitions(params),
+        "contact_matrix": compute_contacts(params),
+        "initial_state": np.array([params["S0"], params["I0"], params["R0"]])
+    }
+
+def run_sim(self, state: Dict, seed: int) -> RawSimOutput:
+    """Run stochastic transitions using pre-computed matrices."""
+    rng = np.random.default_rng(seed)
+    # Use state["transition_matrix"] with rng for stochastic draws
+```
+
+**Pattern C: Hybrid Deterministic-Stochastic**
+```python
+def build_state(self, params: ParameterSet, config: Mapping[str, Any]) -> ODESystem:
+    """Build ODE system deterministically."""
+    return ODESystem(params)  # Pure math, no randomness
+
+def run_sim(self, state: ODESystem, seed: int) -> RawSimOutput:
+    """Add stochastic forcing to deterministic system."""
+    rng = np.random.default_rng(seed)
+    # Run ODE with stochastic forcing terms
+    noise = rng.normal(0, state.noise_scale, size=state.n_steps)
+    return state.solve_with_noise(noise)
+```
+
+The key insight: **ALL randomness flows through `run_sim`'s seed parameter**. This ensures:
+1. Identical parameters → identical state (caching friendly)
+2. Identical state + seed → identical outcomes (reproducible)
+3. State building can be expensive (it's cached via params hash)
+4. Multiple seeds can reuse the same built state efficiently
 
 #### Compiled Simulation Functions
 ```python
@@ -765,6 +1022,7 @@ def compute_output_path(bundle_ref: str, experiment_spec: Any,
 ```
 
 Example output structure:
+
 ```
 outputs/
 └── bundles/
@@ -1777,12 +2035,12 @@ class SIRModel(BaseModel):
         super().__init__(space, config)
     
     @model_scenario("lockdown")
-    def lockdown_scenario(self) -> ScenarioSpec:
+    def _scn_lockdown(self) -> ScenarioSpec:
         return ScenarioSpec(
             name="lockdown",
-            param_patch={"beta": 0.3},  # Reduce transmission
-            config_patch={"contact_reduction": 0.7},
-            doc="70% reduction in contacts"
+            patch_params=lambda p: p.with_updates(beta=float(p["beta"]) * 0.35),
+            patch_config=lambda c: {**c, "contact_reduction": 0.65},
+            doc="Reduce beta by 65%"
         )
     
     def build_sim(self, params, seed, config):
@@ -2023,13 +2281,15 @@ def test_end_to_end_execution():
 ### A. Complete SIR Model Example
 
 ```python
-from calabaria import BaseModel, ParameterSpace, ParameterSpec
+from calabaria import BaseModel, ParameterSpace, ParameterSpec, ParameterSet
 from calabaria.decorators import model_scenario, model_output
+from typing import Mapping, Any
 import numpy as np
 import polars as pl
 
 class SIRModel(BaseModel):
-    __version__ = "1.0.0"
+    __version__ = "1.2.0"
+    DEFAULT_SCENARIO = "conservative"  # Override default scenario name
     
     def __init__(self):
         space = ParameterSpace(specs=(
@@ -2037,97 +2297,218 @@ class SIRModel(BaseModel):
             ParameterSpec("gamma", 0.0, 1.0, doc="Recovery rate"),
         ))
         config = {
-            "population": 100000,
+            "population": 100_000,
             "initial_infected": 10,
-            "days": 365,
-            "dt": 0.1
+            "days": 200,
+            "dt": 0.25
         }
         super().__init__(space, config)
+        
+        # Programmatic scenario addition (before sealing)
+        self.add_scenario(ScenarioSpec(
+            name="aggressive",
+            patch_params=lambda p: p.with_updates(beta=float(p["beta"]) * 1.2),
+            patch_config=lambda c: {**c, "days": c["days"] + 50},
+            doc="20% higher transmission, longer horizon"
+        ))
     
-    @model_scenario("lockdown")
-    def lockdown_scenario(self) -> ScenarioSpec:
-        return ScenarioSpec(
-            name="lockdown",
-            param_patch={"beta": 0.3},  # Reduce transmission
-            config_patch={"days": 180},  # Shorter simulation
-            doc="Lockdown with reduced transmission"
+    def setup_scenarios(self):
+        """Customize the default scenario (called during __init__)."""
+        # Replace the "conservative" default with custom transforms
+        self._scenarios[self.DEFAULT_SCENARIO] = ScenarioSpec(
+            name=self.DEFAULT_SCENARIO,
+            patch_params=lambda p: p.with_updates(beta=float(p["beta"]) * 0.9),
+            patch_config=lambda c: c,  # No config changes
+            doc="Conservative scenario with 10% lower transmission"
         )
     
-    def build_sim(self, params, seed, config):
-        rng = np.random.default_rng(seed)
-        N = config["population"]
-        I0 = config["initial_infected"]
+    
+    @model_scenario("vaccination")
+    def _scn_vaccination(self) -> ScenarioSpec:
+        return ScenarioSpec(
+            name="vaccination",
+            patch_params=lambda p: p,  # No param changes
+            patch_config=lambda c: {**c, "vaccination_rate": 0.01},  # 1% per day
+            doc="Daily vaccination at 1% of susceptible population"
+        )
+    
+    def build_state(self, params: ParameterSet, config: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Deterministic assembly. No RNG. No seed."""
+        N = int(config["population"])
+        I0 = int(config["initial_infected"])
         
         return {
-            "S": N - I0,
-            "I": I0,
-            "R": 0,
-            "beta": params.values["beta"],
-            "gamma": params.values["gamma"],
             "N": N,
-            "days": config["days"],
-            "dt": config["dt"],
-            "rng": rng
+            "S": float(N - I0),
+            "I": float(I0),
+            "R": 0.0,
+            "beta": float(params["beta"]),
+            "gamma": float(params["gamma"]),
+            "dt": float(config["dt"]),
+            "steps": int(config["days"] / config["dt"]),
+            "vacc_rate": float(config.get("vaccination_rate", 0.0))
         }
     
-    def run_sim(self, sim, seed):
-        steps = int(sim["days"] / sim["dt"])
-        S, I, R = sim["S"], sim["I"], sim["R"]
+    def run_sim(self, state: Mapping[str, Any], seed: int) -> RawSimOutput:
+        """Execute stochastic sim. RNG boundary lives here."""
+        rng = np.random.default_rng(seed)
         
-        history = {"t": [], "S": [], "I": [], "R": []}
+        # Extract from immutable state
+        S, I, R = state["S"], state["I"], state["R"]
+        beta, gamma = state["beta"], state["gamma"]
+        dt, steps, N = state["dt"], state["steps"], state["N"]
+        vacc = state["vacc_rate"]
         
-        for step in range(steps):
-            t = step * sim["dt"]
+        # Storage arrays
+        S_arr = np.empty(steps)
+        I_arr = np.empty(steps)
+        R_arr = np.empty(steps)
+        
+        # Simulation loop with stochastic elements
+        for t in range(steps):
+            # Optional stochastic modulation (bounded)
+            beta_t = beta * np.clip(rng.normal(1.0, 0.1), 0.5, 1.5)
             
-            # Record state
-            history["t"].append(t)
-            history["S"].append(S)
-            history["I"].append(I)
-            history["R"].append(R)
+            # Vaccination (if configured)
+            if vacc > 0 and S > 1:
+                vacced = rng.binomial(int(S), min(vacc * dt, 1.0))
+                S -= vacced
+                R += vacced
             
             # SIR dynamics
-            dS = -sim["beta"] * S * I / sim["N"] * sim["dt"]
-            dI = (sim["beta"] * S * I / sim["N"] - sim["gamma"] * I) * sim["dt"]
-            dR = sim["gamma"] * I * sim["dt"]
+            dS = -beta_t * S * I / N
+            dI = beta_t * S * I / N - gamma * I
+            dR = gamma * I
             
-            S += dS
-            I += dI
-            R += dR
+            S += dS * dt
+            I += dI * dt
+            R += dR * dt
+            
+            S_arr[t], I_arr[t], R_arr[t] = S, I, R
         
-        return history
+        return {"S": S_arr, "I": I_arr, "R": R_arr, "dt": dt}
     
-    @model_output("timeseries")
-    def extract_timeseries(self, history, seed) -> pl.DataFrame:
-        return pl.DataFrame(history)
+    @model_output("prevalence")
+    def out_prevalence(self, raw: RawSimOutput, seed: int) -> pl.DataFrame:
+        """Extract infection prevalence over time."""
+        n = raw["S"] + raw["I"] + raw["R"]
+        t = pl.Series("t", [i * raw["dt"] for i in range(len(raw["I"]))])
+        prev = pl.Series("prevalence", raw["I"] / n)
+        return pl.DataFrame([t, prev])
+    
+    @model_output("compartments")
+    def out_compartments(self, raw: RawSimOutput, seed: int) -> pl.DataFrame:
+        """Extract all compartment time series."""
+        dt = raw["dt"]
+        return pl.DataFrame({
+            "t": [i * dt for i in range(len(raw["S"]))],
+            "S": raw["S"],
+            "I": raw["I"],
+            "R": raw["R"]
+        })
     
     @model_output("peak")
-    def extract_peak(self, history, seed) -> pl.DataFrame:
-        peak_idx = np.argmax(history["I"])
+    def out_peak(self, raw: RawSimOutput, seed: int) -> pl.DataFrame:
+        """Extract peak infection metrics."""
+        idx = int(np.argmax(raw["I"]))
         return pl.DataFrame({
-            "peak_time": [history["t"][peak_idx]],
-            "peak_infected": [history["I"][peak_idx]]
+            "t_peak": [idx * raw["dt"]],
+            "I_peak": [float(raw["I"][idx])]
+        })
+    
+    @model_output("prevalence_subsampled")
+    def out_prev_subsampled(self, raw: RawSimOutput, seed: int) -> pl.DataFrame:
+        """Example of extractor needing reproducible subsampling (discouraged)."""
+        # If you must subsample in an extractor, use namespaced RNG for determinism
+        rng = self._rng_for_output(seed, "prevalence_subsampled")
+        n = len(raw["I"])
+        keep = np.sort(rng.choice(n, size=min(100, n), replace=False))
+        dt = raw["dt"]
+        return pl.DataFrame({
+            "t": [k * dt for k in keep],
+            "I": [float(raw["I"][k]) for k in keep]
         })
 ```
 
-### B. Testing Strategy
+### B. Complete Workflow Example
+
+```python
+# Development workflow using the refined API
+from sir_model import SIRModel, ParameterSet, ScenarioSpec
+import polars as pl
+
+# 1. Create and explore model
+m = SIRModel()
+print(f"Scenarios: {m.scenarios()}")  # ['aggressive', 'conservative', 'lockdown', 'vaccination']
+print(f"Default: {m.DEFAULT_SCENARIO}")  # 'conservative'
+print(f"Sealed: {m.is_sealed}")  # False (not sealed yet)
+
+# 2. Can still add scenarios before first use
+m.add_scenario(ScenarioSpec(
+    name="extreme",
+    patch_params=lambda p: p.with_updates(beta=float(p["beta"]) * 2.0),
+    doc="Double transmission for worst-case analysis"
+))
+
+# 3. Run DEFAULT_SCENARIO ("conservative") - this seals the model
+ps = ParameterSet({"beta": 0.35, "gamma": 0.1})
+dfs_default = m.simulate(ps, seed=7)  # Runs "conservative" scenario
+print(f"Sealed: {m.is_sealed}")  # True (sealed after first simulate)
+
+# 4. Try to add scenario after sealing (will fail)
+try:
+    m.add_scenario(ScenarioSpec(name="too_late", doc="Won't work"))
+except RuntimeError as e:
+    print(f"Error: {e}")  # "add_scenario() not allowed after first compile/simulate..."
+
+# 5. Run specific scenarios
+dfs_lock = m.simulate_scenario("lockdown", ps, seed=7)
+dfs_vacc = m.simulate_scenario("vaccination", ps, seed=7)
+
+# 6. Compile for production (returns Arrow IPC bytes)
+fns = m.compile_all()  # All scenarios as wire functions
+print(fns.keys())  # ['aggressive', 'conservative', 'extreme', 'lockdown', 'vaccination']
+
+# 7. Use compiled functions with wire protocol
+ipc_default = fns["conservative"](dict(ps.values), 7)  # params dict + seed
+ipc_lock = fns["lockdown"](dict(ps.values), 7)
+
+# 8. Reading Arrow IPC results back to DataFrames
+from io import BytesIO
+for name, arrow_bytes in ipc_lock.items():
+    df = pl.read_ipc(BytesIO(arrow_bytes))
+    print(f"{name}: {len(df)} rows")
+
+# 9. Model identity for provenance
+print(m.model_identity())
+# 'sir_model.SIRModel:1.2.0:default=conservative'
+```
+
+### C. Testing Strategy
 
 #### Unit Tests (Phase 1-2)
 - Parameter validation and bounds
 - Transform invertibility and monotonicity
 - View fix/bind operations
 - Scenario patching
+- RNG boundary: build_state has no randomness
+- RNG boundary: run_sim uses seed correctly
 
 #### Integration Tests (Phase 3-4)
 - Model compilation
 - Bridge translation
 - Wire protocol serialization
 - Cache key stability
+- Scenario compilation produces correct closures
+- Arrow IPC round-trip
 
 #### System Tests (Phase 5-6)
 - End-to-end execution
 - Distributed scenarios
 - Performance benchmarks
 - Provenance verification
+- Replicate seed derivation
+- Cache hit rates
 
 #### Property-Based Tests
 ```python
