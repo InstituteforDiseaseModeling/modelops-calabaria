@@ -83,15 +83,16 @@ forever". It enables hashing, caching, retries, and distribution with near-zero
 foot-guns, while keeping the scientist's API ergonomic.
 
 #### The Pattern
+
 ```python
 # Pure functional core
-def build_state(params: dict, config: dict) -> Any:  
+def build_state(params: dict, config: dict) -> Any:
     """Deterministic assembly - no RNG, no seed"""
     # Build matrices, networks, initial conditions
     # ALL deterministic setup happens here
     return state
 
-def run_sim(state: Any, seed: int) -> Any:  
+def run_sim(state: Any, seed: int) -> Any:
     """Single RNG touchpoint - all randomness flows through seed"""
     rng = np.random.default_rng(seed)
     # Run simulation using pre-built state
@@ -100,22 +101,59 @@ def run_sim(state: Any, seed: int) -> Any:
 # Pragmatic OO facade
 class Model(BaseModel):
     DEFAULT_SCENARIO = "conservative"  # Configurable default
-    
+
     def build_state(self, params: ParameterSet, config: Mapping[str, Any]) -> Any:
-        """Implement deterministic assembly"""
+        """Implement deterministic assembly
+        Args:
+            params: Complete parameter set M (ALL model parameters)
+        """
         return {...}  # No seed parameter!
-    
+
     def run_sim(self, state: Any, seed: int) -> RawSimOutput:
         """Implement stochastic execution"""
         return {...}  # Single seed touchpoint
-    
+
     @final
     def simulate(self, params: ParameterSet, seed: int):
-        """Uses DEFAULT_SCENARIO compiled closure under the hood"""
+        """Run simulation with complete parameters M
+        Args:
+            params: Complete ParameterSet containing ALL model parameters
+            seed: Random seed
+        """
         return super().simulate(params, seed)
+
+# Parameter Space Distinction Example
+"""
+Model Space M: {beta, gamma, population, contact_rate, recovery_days}
+Calibration Space P: {beta, gamma}  # Only these are optimized
+Fixed Parameters: {population=10000, contact_rate=4.0, recovery_days=14}
+
+During calibration:
+- Optimizer works with P = {beta, gamma}
+- CalibrationAdapter converts P → M before calling model.simulate()
+- Model always receives complete M
+"""
 ```
 
 ### 2. Core Types & Parameter System
+
+The main goal of the parameter system is to **make the most common
+researcher-user operations the easiest to do**. These operations are:
+
+- Defining the model parameter space (M), and setting the bounds *once* and
+  having everything propagate through, all the way to
+  calibration, automatically.
+
+- Fixing parameters (conditioning on) scalar values, an essential operation of
+  pre-calibration checks, post-calibration sensitivity analyses, etc.
+
+- These parameter operations are used by both downstream calibrations (e.g. a
+  user fixes some parameters and runs a calibration on a reduced parameter
+  space P ⊂ M from the model M), as well as exploratory sim work (e.g. fixing
+  all parameters to their optima except one, and seeing how it impacts loss).
+
+All of these should be easy to do, in a consistent, clean user-interface
+designed to be expressive and powerful.
 
 #### Type Aliases
 ```python
@@ -158,38 +196,42 @@ class ParameterSpace:
         return {s.name: s for s in self.specs}
 ```
 
-#### Parameter Values and Views
+#### Parameter Spaces: Model (M) vs Calibration (P)
+
+**Key Principle**: Models always work with complete parameter space M.
+Calibration algorithms work with subset P ⊆ M. The CalibrationAdapter handles P
+→ M conversion.
+
 ```python
+# Two distinct parameter spaces:
+# M = Model Parameter Space (complete, what model.simulate() expects)
+# P = Calibration Parameter Space (subset being optimized, P ⊆ M)
+
 @dataclass(frozen=True)
 class ParameterSet:
+    """Complete parameter assignment for space M."""
     values: Dict[str, Scalar]  # Immutable parameter assignment
-    
+
     def __getitem__(self, k: str) -> Scalar:
         """Allow dict-style access to parameter values."""
         return self.values[k]
-    
+
     def with_updates(self, **updates: Scalar) -> "ParameterSet":
         """Create new ParameterSet with updated values (immutable update)."""
         d = dict(self.values)
         d.update(updates)
         return ParameterSet(d)
 
-@dataclass(frozen=True)
-class ParameterView:
-    """Lens over parameter space deciding what's fixed vs free"""
-    space: ParameterSpace
-    fixed: Dict[str, Scalar] = field(default_factory=dict)
-    free: Tuple[str, ...] = field(default_factory=tuple)
-    
-    def fix(self, **kv: Scalar) -> "ParameterView":
-        """Return new view with parameters fixed"""
-        new_fixed = {**self.fixed, **kv}
-        new_free = tuple(n for n in self.free if n not in kv)
-        return ParameterView(self.space, new_fixed, new_free)
-    
-    def bind(self, **free_values: Scalar) -> ParameterSet:
-        """Combine fixed + free values into complete set"""
-        total = {**self.fixed, **free_values}
+    def reunite_with_free(self, fixed: Dict[str, Scalar],
+                          free_values: Dict[str, Scalar]) -> "ParameterSet":
+        """Combine fixed + free values into complete set M.
+
+        This is the KEY method for P → M conversion:
+        - fixed: Parameters held constant during calibration
+        - free_values: Parameters being optimized (from space P)
+        Returns: Complete parameter set for space M
+        """
+        total = {**fixed, **free_values}
         return ParameterSet(values=total)
 ```
 
@@ -547,6 +589,162 @@ class BaseModel(ABC):
         # Derive a deterministic child seed from (seed, name)
         s = int(np.uint64(hash(output_name)) ^ np.uint64(seed))
         return np.random.default_rng(s)
+```
+
+#### CalibrationAdapter: P → M Bridge for Optimization
+
+```python
+@dataclass
+class CalibrationAdapter:
+    """Adapter that bridges calibration space P to model space M.
+
+    During calibration, optimization algorithms work with a subset P of
+    parameters while others remain fixed. This adapter handles the P → M
+    conversion, allowing models to remain pure and always expect complete
+    parameter sets.
+
+    Key responsibilities:
+    • Store fixed parameters (M - P)
+    • Convert optimizer's P values to complete M for model.simulate()
+    • Maintain parameter metadata (bounds, transforms) for P only
+    • Provide clean interface to optimization algorithms
+    """
+
+    model: BaseModel                    # The model (expects complete M)
+    fixed_params: Dict[str, Scalar]     # Parameters held constant
+    free_params: List[str]               # Parameters being optimized (P)
+    transforms: Dict[str, Transform]     # Transforms for free params only
+
+    @classmethod
+    def from_model(cls,
+                   model: BaseModel,
+                   free_params: List[str],
+                   fixed_values: Dict[str, Scalar],
+                   transforms: Optional[Dict[str, Transform]] = None) -> "CalibrationAdapter":
+        """Create adapter from model with specified free/fixed split.
+
+        Args:
+            model: BaseModel instance expecting complete parameters M
+            free_params: Names of parameters to optimize (space P)
+            fixed_values: Values for parameters not being optimized (M - P)
+            transforms: Optional transforms for free parameters
+        """
+        # Validate all parameters are accounted for
+        all_params = set(p.name for p in model.space.specs)
+        free_set = set(free_params)
+        fixed_set = set(fixed_values.keys())
+
+        if free_set & fixed_set:
+            overlap = free_set & fixed_set
+            raise ValueError(f"Parameters cannot be both free and fixed: {overlap}")
+
+        if (free_set | fixed_set) != all_params:
+            missing = all_params - (free_set | fixed_set)
+            raise ValueError(f"Missing parameter values: {missing}")
+
+        return cls(
+            model=model,
+            fixed_params=fixed_values,
+            free_params=free_params,
+            transforms=transforms or {}
+        )
+
+    def simulate(self, free_values: Dict[str, Scalar], seed: int) -> Dict[str, pl.DataFrame]:
+        """Run simulation with P parameters, converting to M internally.
+
+        Args:
+            free_values: Values for parameters in space P (being optimized)
+            seed: Random seed
+
+        Returns:
+            Simulation outputs as DataFrames
+
+        This is the KEY method: Takes P, creates M, runs model.
+        """
+        # Reunite fixed and free into complete parameter set M
+        complete_params = ParameterSet(values={**self.fixed_params, **free_values})
+
+        # Run model with complete parameters
+        return self.model.simulate(complete_params, seed)
+
+    def compile_for_optimization(self) -> Callable[[Dict[str, float], int], Dict[str, bytes]]:
+        """Compile to wire function expecting P parameters only.
+
+        Returns function with signature:
+            (free_params: Dict[str, float], seed: int) -> Dict[str, bytes]
+
+        This compiled function:
+        1. Takes only free parameters (space P)
+        2. Internally converts P → M using fixed values
+        3. Runs model with complete parameters
+        4. Returns Arrow IPC bytes
+        """
+        # Compile model's default scenario
+        model_fn = self.model.compile_scenario(self.model.DEFAULT_SCENARIO)
+        fixed = self.fixed_params  # Capture in closure
+
+        def optimized_fn(free_params: Dict[str, float], seed: int) -> Dict[str, bytes]:
+            # Convert P → M
+            complete = {**fixed, **free_params}
+            # Run with complete parameters
+            return model_fn(complete, seed)
+
+        return optimized_fn
+
+    def get_bounds(self, transformed: bool = False) -> Dict[str, Tuple[float, float]]:
+        """Get bounds for free parameters only (space P).
+
+        Args:
+            transformed: If True, return bounds in transformed space
+
+        Returns:
+            Dict mapping parameter names to (lower, upper) bounds
+        """
+        bounds = {}
+        for name in self.free_params:
+            spec = next(s for s in self.model.space.specs if s.name == name)
+            if transformed and name in self.transforms:
+                t = self.transforms[name]
+                lower_t = t.forward(float(spec.lower))
+                upper_t = t.forward(float(spec.upper))
+                bounds[name] = (lower_t, upper_t)
+            else:
+                bounds[name] = (float(spec.lower), float(spec.upper))
+        return bounds
+
+    def from_transformed(self, coords: Dict[str, float]) -> Dict[str, Scalar]:
+        """Convert from optimizer's transformed coordinates to natural P values.
+
+        Args:
+            coords: Transformed coordinates from optimizer
+
+        Returns:
+            Natural parameter values for space P
+        """
+        natural = {}
+        for name, value in coords.items():
+            if name in self.transforms:
+                natural[name] = self.transforms[name].backward(value)
+            else:
+                natural[name] = value
+        return natural
+
+    def to_transformed(self, params: Dict[str, Scalar]) -> Dict[str, float]:
+        """Convert natural P values to optimizer's transformed coordinates.
+
+        Args:
+            params: Natural parameter values for space P
+
+        Returns:
+            Transformed coordinates for optimizer
+        """
+        transformed = {}
+        for name, value in params.items():
+            if name in self.transforms:
+                transformed[name] = self.transforms[name].forward(float(value))
+            else:
+                transformed[name] = float(value)
+        return transformed
 ```
 
 #### Engineering Rationale: Why This Design?
