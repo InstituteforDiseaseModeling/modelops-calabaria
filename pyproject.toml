@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "modelops-bundle",
     "modelops-contracts",
+    "polars>=1.33.1",
 ]
 
 [build-system]
@@ -16,3 +17,9 @@ build-backend = "hatchling.build"
 [tool.uv.sources]
 modelops-contracts = { path = "../modelops-contracts" }
 modelops-bundle = { path = "../modelops-bundle" }
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.139.1",
+    "pytest>=8.4.2",
+]

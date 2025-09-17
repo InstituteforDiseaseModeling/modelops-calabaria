@@ -532,7 +532,8 @@ def simulate(self, seed: int, **free_values):
     # ... passes complete ParameterSet to BaseModel
 ```
 
-This gives researchers ergonomic P-space operations while maintaining the architectural constraint that ParameterSet = complete M-space point only.
+This gives researchers ergonomic P-space operations while maintaining the
+architectural constraint that ParameterSet = complete M-space point only.
 
 ### 2. Operators (Morphisms)
 
@@ -2516,6 +2517,8 @@ ModelVariant serves as the single fluent interface for P-space operations:
 
 ### Why Scenario Stacks (Composition)
 
+**In flux**
+
 Scenario stacks provide first-class composition:
 - **Ordered composition**: Apply patches in sequence (LWW semantics)
 - **Branching**: Run parallel branches with different compositions
@@ -3447,7 +3450,7 @@ print(list(ENTRY_REGISTRY.keys()))
 
 #### Step 2: Local Development with Reparameterization
 
-Researchers work locally in natural parameter spaces:
+Researchers work locally in natural parameter spaces, using a fluent interface:
 
 ```python
 from examples.sir import SIRModel
