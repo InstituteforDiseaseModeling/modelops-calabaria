@@ -2753,6 +2753,41 @@ class LegacyModelAdapter(BaseModel):
 - Scenarios can support code patches (not just config/params)
 - Provenance can include data lineage
 
+#### Parameter Hierarchical Grouping
+A clean future addition that won't break existing code:
+
+```python
+# Future addition - wouldn't break existing code
+@dataclass(frozen=True)
+class ParameterSpec:
+    name: str
+    min: Scalar
+    max: Scalar
+    kind: str = "float"
+    doc: str = ""
+    group: Optional[str] = None  # Just add this field
+
+# Usage example
+specs = [
+    ParameterSpec("beta", 0, 1, group="disease"),
+    ParameterSpec("gamma", 0, 1, group="disease"),
+    ParameterSpec("efficacy", 0, 1, group="vaccine"),
+    ParameterSpec("waning_rate", 0, 0.1, group="vaccine"),
+]
+
+# ParameterSpace could add filtering methods
+class ParameterSpace:
+    def get_group(self, group: str) -> List[ParameterSpec]:
+        """Get all parameters in a group."""
+        return [s for s in self.specs if s.group == group]
+```
+
+This approach:
+- Maintains backward compatibility (group defaults to None)
+- Keeps the flat structure for calibration/optimization
+- Adds logical organization without complexity
+- Can be extended to support nested groups via dot notation ("disease.transmission")
+
 ---
 
 ## Part VI: Key Engineering Decisions
