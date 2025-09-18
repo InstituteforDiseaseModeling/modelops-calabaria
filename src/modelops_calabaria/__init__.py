@@ -27,6 +27,14 @@ from .decorators import (
 )
 from .constants import SEED_COL
 from .base_model import BaseModel
+from .wire_protocol import (
+    WireABI,
+    SerializedParameterSpec,
+    WireResponse,
+    EntryRecord,
+    ModelRegistry,
+    REGISTRY,
+)
 
 __version__ = "0.1.0"
 
@@ -52,4 +60,11 @@ __all__ = [
     "SEED_COL",
     # Base Model
     "BaseModel",
+    # Wire Protocol
+    "WireABI",
+    "SerializedParameterSpec",
+    "WireResponse",
+    "EntryRecord",
+    "ModelRegistry",
+    "REGISTRY",
 ]

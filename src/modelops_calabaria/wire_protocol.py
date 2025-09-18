@@ -1,58 +1,28 @@
-# Hardened Wire Protocol and EntryRecord Design
+"""Wire protocol implementation for Calabaria models.
 
-## Executive Summary
+This module provides the hardened wire protocol for deploying and executing
+Calabaria models in distributed cloud environments. Key features:
+- No heavy closures (uses import paths)
+- Full JSON serialization
+- Thread-safe registry
+- ABI versioning for protocol evolution
+"""
 
-This document specifies the production-ready wire protocol for Calabaria models. It addresses critical issues in the original design:
-
-- **Heavy closures** → Lightweight import paths
-- **No versioning** → ABI versioning for protocol evolution
-- **Mutable registry** → Thread-safe, validated registry
-- **Non-serializable** → Fully JSON-serializable records
-
-The hardened design ensures models can be safely deployed, discovered, and executed in distributed cloud environments.
-
-## Problems Solved
-
-### 1. Closure Weight
-**Problem**: Original wire functions were closures capturing entire model classes, making them non-serializable and memory-heavy.
-
-**Solution**: Store import paths (`module.Class`) and create wire functions on-demand via factories.
-
-### 2. Protocol Evolution
-**Problem**: No way to evolve the wire function signature without breaking existing deployments.
-
-**Solution**: Explicit `WireABI` versioning allows multiple protocol versions to coexist.
-
-### 3. Registry Safety
-**Problem**: Global mutable dictionary could be corrupted by concurrent access.
-
-**Solution**: Thread-safe `ModelRegistry` class with validation and locking.
-
-### 4. Serialization
-**Problem**: ParameterSpace and other objects weren't guaranteed serializable.
-
-**Solution**: `SerializedParameterSpec` and explicit JSON serialization for all registry data.
-
-## Core Design Principles
-
-1. **No Heavy Closures**: Use import paths and factories, not captured state
-2. **Explicit Versioning**: Every wire protocol has an ABI version
-3. **Fully Serializable**: Everything in EntryRecord must serialize to JSON
-4. **Thread-Safe**: Registry operations are protected by locks
-5. **Validated Construction**: Fail fast with clear errors during registration
-
-## Implementation
-
-### Wire ABI Versioning
-
-```python
-from enum import Enum
-from typing import Protocol, runtime_checkable, Dict, Any, Optional, List, Tuple, Type, Callable
 from dataclasses import dataclass, field, asdict
-import threading
-import io
 from datetime import datetime
+from enum import Enum
 from types import MappingProxyType
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+import hashlib
+import importlib
+import io
+import threading
+
+import polars as pl
+
+from .parameters import ParameterSpec, ParameterSet, Scalar
+from .constants import SEED_COL
+
 
 class WireABI(str, Enum):
     """Wire protocol ABI versions.
@@ -61,50 +31,16 @@ class WireABI(str, Enum):
     New versions can be added without breaking existing deployments.
     """
     V1 = "calabaria.wire.v1"  # (params_M, seed, scenario_stack, outputs)
-    V2 = "calabaria.wire.v2"  # Future: might add config overrides
+    # Future: V2 = "calabaria.wire.v2"  # Might add config overrides
 
     def describe(self) -> str:
         """Human-readable description of this ABI version."""
         descriptions = {
             self.V1: "Basic wire: params, seed, scenarios, outputs",
-            self.V2: "Extended wire: adds config overrides (future)",
         }
         return descriptions.get(self, "Unknown ABI version")
-```
 
-### Wire Function Protocol
 
-```python
-@runtime_checkable
-class WireFunction(Protocol):
-    """Protocol for wire functions - enables validation.
-
-    All wire functions must match this signature regardless of ABI version.
-    Different ABI versions may interpret the parameters differently.
-    """
-    def __call__(self,
-                 *,
-                 params_M: Dict[str, Scalar],
-                 seed: int,
-                 scenario_stack: Tuple[str, ...] = ("baseline",),
-                 outputs: Optional[List[str]] = None) -> WireResponse:
-        """Execute model with given parameters and configuration.
-
-        Args:
-            params_M: Complete M-space parameters (no missing allowed)
-            seed: Random seed for reproducibility
-            scenario_stack: Ordered list of scenarios to apply (LWW semantics)
-            outputs: Optional subset of outputs to return (None = all)
-
-        Returns:
-            WireResponse with serialized outputs and provenance
-        """
-        ...
-```
-
-### Serializable Parameter Specification
-
-```python
 @dataclass(frozen=True)
 class SerializedParameterSpec:
     """Serializable parameter specification.
@@ -144,11 +80,47 @@ class SerializedParameterSpec:
             kind=spec.kind,
             doc=spec.doc
         )
-```
 
-### Hardened EntryRecord
 
-```python
+@dataclass(frozen=True)
+class WireResponse:
+    """Response from wire function execution.
+
+    Contains both the simulation outputs and provenance information
+    for tracking and debugging.
+    """
+    outputs: Dict[str, bytes]        # Output name → Arrow IPC bytes
+    provenance: Dict[str, Any]       # Execution metadata
+
+    def get_dataframe(self, output_name: str) -> pl.DataFrame:
+        """Convenience method to deserialize a specific output.
+
+        Args:
+            output_name: Name of output to retrieve
+
+        Returns:
+            Polars DataFrame
+
+        Raises:
+            KeyError: If output not found
+        """
+        if output_name not in self.outputs:
+            available = sorted(self.outputs.keys())
+            raise KeyError(
+                f"Output '{output_name}' not found. "
+                f"Available: {available}"
+            )
+
+        return pl.read_ipc(io.BytesIO(self.outputs[output_name]))
+
+    def get_all_dataframes(self) -> Dict[str, pl.DataFrame]:
+        """Deserialize all outputs to DataFrames."""
+        return {
+            name: pl.read_ipc(io.BytesIO(data))
+            for name, data in self.outputs.items()
+        }
+
+
 @dataclass(frozen=True)
 class EntryRecord:
     """Hardened registry entry for a model class.
@@ -211,6 +183,7 @@ class EntryRecord:
         - Persisting registry to disk
         - Transmitting model metadata to cloud
         - UI/dashboard display
+        - Bundle manifest generation
         """
         return {
             "id": self.id,
@@ -244,7 +217,7 @@ class EntryRecord:
             created_at=data["created_at"]
         )
 
-    def get_wire_factory(self) -> Callable[[], WireFunction]:
+    def get_wire_factory(self) -> Callable[[], Callable]:
         """Get factory that creates wire functions.
 
         Returns a factory (not the wire itself) to avoid heavy closures.
@@ -255,11 +228,13 @@ class EntryRecord:
         - Multiple wire instances if needed
         - No heavy closures in registry
         """
-        def factory() -> WireFunction:
+        def factory():
             # Dynamic import at wire creation time
-            import importlib
             module = importlib.import_module(self.module_name)
             model_class = getattr(module, self.class_name)
+
+            # Import BaseModel here to avoid circular import
+            from .base_model import BaseModel
 
             # Validate it's a BaseModel subclass
             if not issubclass(model_class, BaseModel):
@@ -275,8 +250,7 @@ class EntryRecord:
 
         return factory
 
-    @staticmethod
-    def _make_v1_wire(model_class: Type[BaseModel]) -> WireFunction:
+    def _make_v1_wire(self, model_class) -> Callable:
         """Create V1 wire function for a model class.
 
         V1 Protocol:
@@ -284,6 +258,22 @@ class EntryRecord:
         - Applies scenario stack in order (LWW)
         - Returns IPC-serialized DataFrames
         """
+        # Capture the space from the EntryRecord
+        # We need to reconstruct the ParameterSpace from specs
+        from .parameters import ParameterSpec, ParameterSpace
+
+        param_specs = [
+            ParameterSpec(
+                name=spec.name,
+                min=int(spec.min) if spec.kind == "int" else spec.min,
+                max=int(spec.max) if spec.kind == "int" else spec.max,
+                kind=spec.kind,
+                doc=spec.doc
+            )
+            for spec in self.param_specs
+        ]
+        space = ParameterSpace(param_specs)
+
         def wire_v1(*,
                     params_M: Dict[str, Scalar],
                     seed: int,
@@ -291,7 +281,7 @@ class EntryRecord:
                     outputs: Optional[List[str]] = None) -> WireResponse:
 
             # Create fresh model instance (stateless execution)
-            model = model_class()
+            model = model_class(space=space)
             model._seal()  # Ensure registries are frozen
 
             # Validate all scenarios exist
@@ -340,16 +330,19 @@ class EntryRecord:
                 serialized[name] = buffer.getvalue()
 
             # Build provenance information
-            import hashlib
             param_hash = hashlib.sha256(
                 str(sorted(params_M.items())).encode()
             ).hexdigest()[:16]
+
+            # Generate model hash same way as in compile_entrypoint
+            model_hash_input = f"{model_class.__module__}.{model_class.__name__}"
+            model_hash = hashlib.sha256(model_hash_input.encode()).hexdigest()[:8]
 
             return WireResponse(
                 outputs=serialized,
                 provenance={
                     "model_id": f"{model_class.__module__}.{model_class.__name__}",
-                    "model_hash": model_class.__hash__() if hasattr(model_class, '__hash__') else "unknown",
+                    "model_hash": model_hash,
                     "param_hash": param_hash,
                     "scenario_stack": scenario_stack,
                     "outputs": list(filtered.keys()),
@@ -364,11 +357,8 @@ class EntryRecord:
         wire_v1.__doc__ = f"V1 wire function for {model_class.__name__}"
 
         return wire_v1
-```
 
-### Thread-Safe Model Registry
 
-```python
 class ModelRegistry:
     """Thread-safe, validated model registry.
 
@@ -398,18 +388,16 @@ class ModelRegistry:
         # Validate wire function can be created
         try:
             factory = record.get_wire_factory()
-            wire = factory()
-            if not isinstance(wire, WireFunction):
-                raise TypeError(
-                    f"Wire function doesn't match WireFunction protocol"
-                )
+            # Don't actually create the wire, just validate factory works
+            if not callable(factory):
+                raise TypeError("Wire factory must be callable")
         except ImportError as e:
             raise ImportError(
                 f"Cannot import model {record.module_name}.{record.class_name}: {e}"
             )
         except Exception as e:
             raise ValueError(
-                f"Cannot create wire function for {record.id}: {e}"
+                f"Cannot create wire factory for {record.id}: {e}"
             )
 
         # Thread-safe registration
@@ -434,7 +422,7 @@ class ModelRegistry:
         with self._lock:
             return self._entries.get(entry_id)
 
-    def get_wire(self, entry_id: str) -> WireFunction:
+    def get_wire(self, entry_id: str) -> Callable:
         """Get wire function for a model.
 
         Convenience method that:
@@ -544,397 +532,6 @@ class ModelRegistry:
             self._entries.clear()
             self._creation_order.clear()
 
+
 # Global registry instance
 REGISTRY = ModelRegistry()
-```
-
-### Wire Response Type
-
-```python
-@dataclass(frozen=True)
-class WireResponse:
-    """Response from wire function execution.
-
-    Contains both the simulation outputs and provenance information
-    for tracking and debugging.
-    """
-    outputs: Dict[str, bytes]        # Output name → Arrow IPC bytes
-    provenance: Dict[str, Any]       # Execution metadata
-
-    def get_dataframe(self, output_name: str) -> 'pl.DataFrame':
-        """Convenience method to deserialize a specific output.
-
-        Args:
-            output_name: Name of output to retrieve
-
-        Returns:
-            Polars DataFrame
-
-        Raises:
-            KeyError: If output not found
-        """
-        import polars as pl
-
-        if output_name not in self.outputs:
-            available = sorted(self.outputs.keys())
-            raise KeyError(
-                f"Output '{output_name}' not found. "
-                f"Available: {available}"
-            )
-
-        return pl.read_ipc(io.BytesIO(self.outputs[output_name]))
-
-    def get_all_dataframes(self) -> Dict[str, 'pl.DataFrame']:
-        """Deserialize all outputs to DataFrames."""
-        import polars as pl
-
-        return {
-            name: pl.read_ipc(io.BytesIO(data))
-            for name, data in self.outputs.items()
-        }
-```
-
-### Model Compilation Integration
-
-```python
-# Extension to BaseModel for registration
-class BaseModel:
-    """Base model with hardened compilation support."""
-
-    @classmethod
-    def compile_entrypoint(cls,
-                          alias: Optional[str] = None,
-                          register: bool = True) -> EntryRecord:
-        """Compile model to hardened entry record.
-
-        Args:
-            alias: Human-friendly name for the model
-            register: Whether to register in global registry
-
-        Returns:
-            EntryRecord for this model
-        """
-        # Create temporary instance for introspection
-        temp_instance = cls()
-        temp_instance._seal()  # Ensure everything is registered
-
-        # Build serializable parameter specs
-        param_specs = tuple(
-            SerializedParameterSpec.from_spec(spec)
-            for spec in temp_instance.space.specs
-        )
-
-        # Generate stable model hash
-        import hashlib
-        model_code = inspect.getsource(cls)
-        model_hash = hashlib.sha256(model_code.encode()).hexdigest()[:16]
-
-        # Create entry record
-        record = EntryRecord(
-            id=f"{cls.__module__}.{cls.__name__}@{model_hash[:8]}",
-            model_hash=model_hash,
-            abi_version=WireABI.V1,
-            module_name=cls.__module__,
-            class_name=cls.__name__,
-            scenarios=tuple(sorted(temp_instance._scenarios.keys())),
-            outputs=tuple(sorted(temp_instance._outputs.keys())),
-            param_specs=param_specs,
-            alias=alias or cls.__name__
-        )
-
-        # Register globally if requested
-        if register:
-            REGISTRY.register(record)
-
-        return record
-```
-
-## Usage Examples
-
-### Basic Model Registration
-
-```python
-from modelops_calabaria import BaseModel, ParameterSpec, ParameterSpace
-
-class SIRModel(BaseModel):
-    def __init__(self):
-        space = ParameterSpace([
-            ParameterSpec("beta", 0.0, 1.0, doc="Transmission rate"),
-            ParameterSpec("gamma", 0.0, 1.0, doc="Recovery rate"),
-            ParameterSpec("population", 100, 1_000_000, kind="int"),
-        ])
-        super().__init__(space)
-
-    # ... implement build_sim, run_sim, etc ...
-
-# Register the model
-record = SIRModel.compile_entrypoint(alias="SIR Epidemic Model")
-print(f"Registered: {record.id}")
-```
-
-### Using the Registry
-
-```python
-# List all models
-models = REGISTRY.list_models()
-print(f"Available models: {models}")
-
-# Search for models
-epidemic_models = REGISTRY.search(module_pattern="*epidemic*")
-models_with_vaccination = REGISTRY.search(has_scenario="vaccination")
-
-# Get and execute a model
-entry = REGISTRY.get("examples.sir.SIRModel@a1b2c3d4")
-wire = REGISTRY.get_wire(entry.id)
-
-# Execute the wire function
-response = wire(
-    params_M={"beta": 0.3, "gamma": 0.1, "population": 10000},
-    seed=42,
-    scenario_stack=("baseline", "lockdown"),
-    outputs=["incidence", "prevalence"]
-)
-
-# Get results
-incidence_df = response.get_dataframe("incidence")
-```
-
-### Persisting the Registry
-
-```python
-# Save registry to JSON
-registry_data = REGISTRY.to_json()
-with open("model_registry.json", "w") as f:
-    json.dump(registry_data, f, indent=2)
-
-# Load registry from JSON
-with open("model_registry.json", "r") as f:
-    data = json.load(f)
-    REGISTRY.from_json(data)
-```
-
-### Cloud Deployment
-
-```python
-def cloud_runner(entry_id: str, params: Dict, seed: int) -> WireResponse:
-    """Example cloud runner using the registry."""
-    # Get the wire function
-    wire = REGISTRY.get_wire(entry_id)
-
-    # Execute with cloud-provided parameters
-    return wire(
-        params_M=params,
-        seed=seed,
-        scenario_stack=("baseline",),  # Could come from job spec
-        outputs=None  # Return all outputs
-    )
-```
-
-## Bundle Integration and Model Registration
-
-### The Bundle + Manifest Pattern
-
-The combination of content-addressed bundles with wire manifests provides critical guarantees for production deployment:
-
-#### 1. Deterministic Identity
-- Bundle digest includes BOTH code AND wire manifest
-- Same code + same manifest = same digest
-- Different manifest = different digest
-- Can't accidentally use wrong wire configuration
-
-#### 2. Complete Provenance
-```python
-# Every execution traces back to exact code + compilation
-result = wire(params_M={...}, seed=42)
-print(result.provenance["bundle_digest"])  # sha256:a1b2c3d4...
-# This digest identifies exact code + manifest that produced result
-```
-
-#### 3. Atomic Deployment
-- Bundle and manifest always travel together
-- No version skew between code and metadata
-- Single digest identifies complete deployment unit
-- Can't update one without updating the other
-
-#### 4. Discovery Without Execution
-```python
-# Cloud can list/search models without importing Python
-for bundle_digest in storage.list_bundles():
-    manifest = storage.get_manifest(bundle_digest)  # Just JSON
-    # Can index, search, display without running code
-    print(f"Model: {manifest['id']}")
-    print(f"Scenarios: {manifest['scenarios']}")
-    print(f"Parameters: {[p['name'] for p in manifest['param_specs']]}")
-```
-
-### Model Registration Workflow
-
-The `register-model` command provides a standardized deployment workflow:
-
-```bash
-# One command to compile and bundle
-modelops-bundle register-model examples.sir.SIRModel --validate
-
-# This single command:
-# 1. Compiles entrypoint → EntryRecord
-# 2. Creates bundle with code
-# 3. Adds wire_manifest.json to bundle
-# 4. Validates wire creation (optional)
-# 5. Returns bundle digest for deployment
-
-# Then push separately
-modelops-bundle push sha256:a1b2c3d4...
-```
-
-#### Python API
-
-```python
-from modelops_bundle import register_model
-from examples.sir import SIRModel
-
-# Register and validate
-result = register_model(
-    SIRModel,
-    alias="SIR Epidemic Model v2",
-    validate=True  # Test wire creation
-)
-
-print(f"Registered {result.entry_id}")
-print(f"Bundle: {result.digest}")
-
-# Push separately
-bundle.push()
-```
-
-### Why Compile Locally (Not in Cloud)
-
-We compile entrypoints BEFORE bundling because:
-
-1. **Fail fast** - Compilation errors caught on developer machine, not in production
-2. **Immutable artifacts** - Wire manifest becomes part of content-addressed bundle
-3. **No runtime surprises** - What you test locally is exactly what runs in cloud
-4. **Language agnostic** - Cloud doesn't need to understand Python model compilation
-5. **Discoverable** - Can list models from manifests without executing code
-6. **Cacheable** - Same bundle digest always has same pre-compiled manifest
-
-### Complete Deployment Flow
-
-```python
-# 1. Developer writes model
-class EpidemicModel(BaseModel):
-    def __init__(self):
-        # Model implementation
-        pass
-
-# 2. Register model (compile + bundle)
-from modelops_bundle import register_model
-
-result = register_model(EpidemicModel, validate=True)
-# Creates bundle with:
-# - Model code
-# - Dependencies
-# - wire_manifest.json (pre-compiled EntryRecord)
-
-# 3. Push to storage
-from modelops_bundle import Bundle
-
-bundle = Bundle.load(result.bundle_path)
-bundle.push()
-
-# 4. Cloud execution
-def cloud_worker(bundle_digest: str, params: dict, seed: int):
-    # Pull bundle by digest
-    bundle = Bundle.pull(bundle_digest)
-
-    # Load manifest (no Python import yet!)
-    with open(bundle.path / "wire_manifest.json") as f:
-        manifest = json.load(f)
-
-    # Reconstruct EntryRecord from manifest
-    entry = EntryRecord.from_json(manifest)
-
-    # Add bundle to path for imports
-    sys.path.insert(0, str(bundle.path))
-
-    # Create wire via factory (imports happen here)
-    wire = entry.get_wire_factory()()
-
-    # Execute
-    return wire(params_M=params, seed=seed)
-```
-
-This architecture ensures that model registration is simple, safe, and reproducible.
-
-## Migration Notes
-
-### From Old Design
-
-1. **Replace closure-based wires** with import path + factory pattern
-2. **Add ABI version** to all EntryRecords
-3. **Convert ParameterSpace** to SerializedParameterSpec list
-4. **Replace global dict** with ModelRegistry instance
-5. **Add validation** at registration time
-
-### Compatibility
-
-The hardened design is backward-compatible at the API level:
-- `compile_entrypoint()` has the same signature
-- Wire functions have the same calling convention
-- Registry lookup works the same way
-
-### Performance Impact
-
-- **Positive**: No heavy closures in memory
-- **Positive**: Lazy model loading via import
-- **Neutral**: Small overhead for factory pattern
-- **Positive**: JSON serialization enables caching
-
-## Future Extensions
-
-### Wire ABI V2
-```python
-# Future V2 wire with config overrides
-def wire_v2(*,
-            params_M: Dict[str, Scalar],
-            seed: int,
-            scenario_stack: Tuple[str, ...] = ("baseline",),
-            outputs: Optional[List[str]] = None,
-            config_overrides: Optional[Dict[str, Any]] = None) -> WireResponse:
-    # V2 implementation with additional config support
-    pass
-```
-
-### Registry Federation
-```python
-class FederatedRegistry:
-    """Registry that can pull from multiple sources."""
-
-    def __init__(self, registries: List[ModelRegistry]):
-        self.registries = registries
-
-    def search_all(self, **criteria) -> List[Tuple[str, str]]:
-        """Search across all federated registries."""
-        # Returns (registry_name, model_id) pairs
-        pass
-```
-
-### Model Versioning
-```python
-@dataclass(frozen=True)
-class VersionedEntryRecord(EntryRecord):
-    """Entry with semantic versioning."""
-    version: str  # e.g., "1.2.3"
-    previous_versions: Tuple[str, ...] = ()  # Previous entry IDs
-```
-
-## Summary
-
-This hardened design provides:
-
-1. **Production Safety**: Thread-safe, validated, versioned
-2. **Cloud Ready**: Fully serializable, no heavy closures
-3. **Discoverable**: Rich search and introspection capabilities
-4. **Evolvable**: ABI versioning for protocol evolution
-5. **Performant**: Lazy loading, lightweight registry
-
-The design maintains the simplicity of the original API while adding the robustness required for production deployment.

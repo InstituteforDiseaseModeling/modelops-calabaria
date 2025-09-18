@@ -439,8 +439,3 @@ class TestHelperMethods:
         with pytest.raises(KeyError, match="not found"):
             model.get_scenario("nonexistent")
 
-    def test_variant_placeholder(self):
-        """Test that variant() returns NotImplemented."""
-        model = SimpleTestModel()
-        result = model.variant()
-        assert result is NotImplemented

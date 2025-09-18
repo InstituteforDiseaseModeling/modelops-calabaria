@@ -283,10 +283,14 @@ def logitize(p):
 
 **Correct (separated coordinates)**:
 ```python
-# Using transforms with ModelVariant
-derived = model.variant().fix(population=10000).with_transforms(beta=AffineSqueezedLogit())
-z = derived.to_transformed({"beta": 0.3})     # returns NEW coords in transformed space
-x = derived.from_transformed(z)                # back to physical space
+# Using transforms with VariantSpec and ModelVariant
+spec = VariantSpec(
+    view=ParameterView.from_fixed(model.space, {"population": 10000}),
+    transforms={"beta": AffineSqueezedLogit()}
+)
+variant = ModelVariant(model, spec)
+z = variant.to_transformed(beta=0.3)     # returns NEW coords in transformed space
+x = variant.from_transformed(**z)         # back to physical space
 ```
 
 ### Concurrency Bugs
@@ -1043,8 +1047,8 @@ class AffineSqueezedLogit:
         s = 1.0 / (1.0 + math.exp(-y))
         return (s - self.eps) / (1.0 - 2.0*self.eps)
 
-# Note: TransformedView removed - use ModelVariant.with_transforms() instead
-# ModelVariant now provides transform functionality directly via:
+# Note: TransformedView removed - use transforms in VariantSpec instead
+# VariantSpec provides transform functionality via:
 #   - with_transforms(**name_to_transform) to add transforms
 #   - to_transformed(free_values) to convert to optimizer space
 #   - from_transformed(coords) to convert back to physical space
@@ -1200,28 +1204,35 @@ class ScenarioSpec:
         return new_params, new_config
 ```
 
-#### Conceptual Distinction: Scenarios vs ModelVariants
+#### Conceptual Distinction: Scenarios vs VariantSpec vs ModelVariant
 
 **Mental Model in One Line**
-- **Scenario**: "Lockdown sets contact_rate=2 and switches vaccination on." (data)
-- **ModelVariant**: "This run uses lockdown + vaccination, fixes population=10k, varies (beta, gamma) with logit transforms, and outputs weekly incidence." (handle)
+- **Scenario**: "Lockdown sets contact_rate=2 and switches vaccination on." (data patches)
+- **VariantSpec**: "Fix population=10k, vary (beta, gamma) with logit transforms, apply lockdown scenario." (complete configuration)
+- **ModelVariant**: "Execute this model with this variant spec." (simple executor)
 
 **What Each One Is**
 
-**ScenarioSpec = Data**
+**ScenarioSpec = Data Patches**
 - A named, immutable patch: `{param_patches, config_patches, policy}`
 - Fixes numeric params and tweaks config
 - No transforms, no reparam, no logic, no RNG
 - Think "preset conditions" - declarative and reusable
 
-**ModelVariant = Handle**
-- An immutable composition you actually run:
-  `(model + fixed/free split + scenario_stack + config_overrides + transforms [+ reparam?])`
-- The fluent builder researchers use
-- Binds P→M, reconciles free/fixed, composes config
-- Exposes `simulate()`, `compile_local()`, `to_yaml_*()`
+**VariantSpec = Complete Configuration**
+- Defines a model variant with all settings:
+  `(fixed/free split + scenario_list + transforms [+ reparam?])`
+- Immutable configuration object
+- Can be serialized to YAML/JSON
+- Contains the complete identity of a variant
 
-They operate at different layers: Scenarios are building blocks; ModelVariant is the assembled thing.
+**ModelVariant = Simple Executor**
+- Just pairs BaseModel with VariantSpec
+- Provides execution methods: `simulate()`, `to_yaml_*()`, `bounds()`
+- No configuration methods - all config lives in VariantSpec
+- Thin convenience wrapper for execution
+
+They operate at different layers: Scenarios are data patches; VariantSpec is complete configuration; ModelVariant just executes.
 
 **Why Both? Separation of Concerns**
 
@@ -1235,7 +1246,7 @@ Where teams get into trouble is introducing a third thing (e.g., a "ScenarioBuil
 
 ✅ **Do:**
 - Keep ScenarioSpec tiny and pure (patches only)
-- Keep all composition semantics (order, LWW/strict, allow_overlap) inside `ModelVariant.scenarios(...)`
+- Keep all composition semantics (order, LWW/strict, allow_overlap) inside `VariantSpec`
 - On variant build, reconcile param patches → move those params from free→fixed
 - Include scenario_stack (names) in provenance/variant keys
 - Let YAML carry both scenario_branches and any config_overrides so cloud runs match local
@@ -1472,38 +1483,6 @@ class BaseModel(ABC):
         # Extract outputs (includes SEED_COL addition)
         return self.extract_outputs(raw, seed)
 
-    def variant(self, *scenario_names: str) -> "ModelVariant":
-        """Create ModelVariant for fluent P-space operations.
-
-        This is the entry point for research workflows.
-        Can start with a scenario stack for composition.
-
-        Args:
-            *scenario_names: Optional scenario stack (default: baseline)
-
-        Returns:
-            ModelVariant (variant) with scenario patches applied
-        """
-        self._seal()  # Ensure scenarios are registered
-
-        # Start with all params free
-        dm = ModelVariant(
-            model=self,
-            fixed=MappingProxyType({}),
-            free=tuple(self.space.names()),
-            scenario_stack=(),  # Start empty, will be set by scenarios()
-            transforms=MappingProxyType({}),
-            reparam_spec=None,
-            composed_config=MappingProxyType({}),
-            name=f"{self.__class__.__name__}:variant"
-        )
-
-        # Apply initial scenario stack if provided
-        if scenario_names:
-            dm = dm.scenarios(*scenario_names)
-
-        return dm
-
     @classmethod
     def compile_entrypoint(cls, alias: Optional[str] = None) -> EntryRecord:
         """Compile model to cloud entrypoint with single canonical wire.
@@ -1681,249 +1660,131 @@ class BaseModel(ABC):
 
 ```
 
-#### ModelVariant - Fluent P-Space Builder with Scenario Stacks
+#### ModelVariant - Simple Executor for Model + VariantSpec
 
 ```python
-from dataclasses import dataclass, replace
-from typing import Mapping, Tuple, Optional, Dict, Any, List, Union
+from dataclasses import dataclass
+from typing import Dict, Tuple, Optional, List, Any, Callable
 import itertools
 
 @dataclass(frozen=True)
 class ModelVariant:
-    """Fluent, immutable variant handle for P-space ergonomics.
+    """Simple pairing of a BaseModel with a VariantSpec for execution.
 
-    This is the "handle" that assembles a runnable composition from:
-    - A BaseModel (the simulation logic)
-    - Fixed/free parameter split (partial valuation)
-    - Scenario stack (ordered composition of patches)
-    - Config overrides (ad-hoc settings)
-    - Transforms (for optimization)
+    This is NOT a fluent builder - all configuration lives in VariantSpec.
+    ModelVariant just provides convenient execution methods for the paired
+    model and spec.
 
-    NOT a subclass of BaseModel - it's a variant handle.
-    Every method returns a NEW ModelVariant (immutable pattern).
+    Key responsibilities:
+    - Execute simulation in P-space (free parameters only)
+    - Export to YAML for runs/sweeps
+    - Get bounds for free parameters
+    - Apply transforms to/from optimization space
 
     See "Conceptual Distinction: Scenarios vs ModelVariants" for architectural rationale.
     """
     model: BaseModel
-    fixed: Mapping[str, Scalar]
-    free: Tuple[str, ...]
-    scenario_stack: Tuple[str, ...]  # Ordered composition of scenarios
-    transforms: Mapping[str, Transform]
-    reparam_spec: Optional[ReparamSpec] = None
-    composed_config: Mapping[str, Any] = field(default_factory=dict)  # Pre-composed config patches
-    name: str = ""
+    spec: VariantSpec
 
     def __post_init__(self):
-        """Make collections immutable."""
-        object.__setattr__(self, 'fixed', MappingProxyType(self.fixed))
-        object.__setattr__(self, 'transforms', MappingProxyType(self.transforms))
+        """Validate spec is compatible with model."""
+        # Ensure spec's space matches model's space
+        if self.spec.view.space != self.model.space:
+            raise ValueError(
+                "VariantSpec's parameter space doesn't match model's space"
+            )
 
-    # ---- Fluent API: return NEW ModelVariant each time ----
+    def simulate(self, *, seed: int, **free_vals: Scalar) -> Dict[str, pl.DataFrame]:
+        """Run simulation with free parameters only.
 
-    def fix(self, **kv: Scalar) -> "ModelVariant":
-        """Fix additional parameters, returning new variant.
-
-        Automatically updates free tuple.
-        """
-        new_fixed = {**self.fixed, **kv}
-        new_free = tuple(n for n in self.model.space.names()
-                        if n not in new_fixed)
-        return replace(self, fixed=new_fixed, free=new_free)
-
-    def scenario(self, name: str) -> "ModelVariant":
-        """Set a single scenario (replaces stack).
-
-        Delegates to scenarios() for consistency.
-        """
-        return self.scenarios(name)
-
-    def scenarios(self, *names_or_specs: Union[str, ScenarioSpec]) -> "ModelVariant":
-        """Replace the stack with ordered scenarios (names or specs).
-
-        Applies patches in order (LWW) and reconciles with fixed/free.
-        Config patches are composed and stored for runtime application.
+        This is the main execution method. Converts P→M internally using the
+        VariantSpec's view and applies any scenarios.
 
         Args:
-            *names_or_specs: Either scenario names (str) or ScenarioSpec objects
-        """
-        # Normalize to specs
-        specs = []
-        for item in names_or_specs:
-            if isinstance(item, str):
-                if item not in self.model._scenarios:
-                    available = sorted(self.model._scenarios.keys())
-                    raise ValueError(
-                        f"Unknown scenario: {item}. Available: {available}"
-                    )
-                specs.append(self.model._scenarios[item])
-            else:  # Assume ScenarioSpec
-                specs.append(item)
-
-        # Apply patches in order (LWW semantics)
-        fixed = dict(self.fixed)
-        free = list(self.free)
-        composed_cfg = {}  # Build fresh config composition
-        seen_params = {}  # Track which scenario set each param for conflict detection
-
-        for spec in specs:
-            # Check for parameter conflicts in strict mode
-            if spec.conflict_policy == "strict" and spec.param_patches:
-                for param_name in spec.param_patches:
-                    if param_name in seen_params and (
-                        not spec.allow_overlap or param_name not in spec.allow_overlap
-                    ):
-                        raise ValueError(
-                            f"Parameter '{param_name}' set by multiple scenarios: "
-                            f"{seen_params[param_name].name} and {spec.name}. "
-                            f"Use conflict_policy='lww' or add to allow_overlap."
-                        )
-
-            # Reconcile parameter patches
-            if spec.param_patches:
-                # Update fixed with patches
-                fixed.update(spec.param_patches)
-                # Remove patched params from free
-                patched = set(spec.param_patches.keys())
-                free = [p for p in free if p not in patched]
-                # Track which scenario set these params
-                for param_name in spec.param_patches:
-                    seen_params[param_name] = spec
-
-            # Compose config patches (applied at runtime)
-            if spec.config_patches:
-                composed_cfg.update(spec.config_patches)
-
-        # Store scenario names for the stack
-        scenario_names = tuple(s.name if isinstance(s, ScenarioSpec) else s
-                               for s in names_or_specs)
-
-        return replace(self,
-                      scenario_stack=scenario_names,
-                      fixed=MappingProxyType(fixed),
-                      free=tuple(free),
-                      composed_config=MappingProxyType(composed_cfg))
-
-    def with_transforms(self, **name_to_transform: Transform) -> "ModelVariant":
-        """Add parameter transforms for optimization.
-
-        Transforms apply ONLY to free parameters.
-        """
-        # Validate transforms are for free params
-        for param_name in name_to_transform:
-            if param_name not in self.free:
-                raise ValueError(
-                    f"Transform for non-free param '{param_name}'. "
-                    f"Free params: {self.free}"
-                )
-
-        new_transforms = {**self.transforms, **name_to_transform}
-        return replace(self, transforms=new_transforms)
-
-    def with_reparam(self, spec: ReparamSpec) -> "ModelVariant":
-        """Apply reparameterization for working in alternate parameter spaces.
-
-        Example: Work with R0 instead of beta while keeping gamma fixed.
-        """
-        return replace(self, reparam_spec=spec, free=spec.free)
-
-    def with_config(self, **config_overrides: Any) -> "ModelVariant":
-        """Add ad-hoc config overrides that apply after scenario stack.
-
-        These config values have highest precedence (Last-Write-Wins).
-        Useful for one-off studies without creating new scenarios.
-
-        Args:
-            **config_overrides: Config key-value pairs to override
+            seed: Random seed
+            **free_vals: Values for free parameters only (P-space)
 
         Returns:
-            New ModelVariant with updated config
+            Dictionary of output DataFrames
         """
-        # Merge overrides with existing composed config (overrides win)
-        new_config = {**self.composed_config, **config_overrides}
-        return replace(self, composed_config=MappingProxyType(new_config))
+        # P → M conversion using view
+        params_M = self.spec.view.bind(**free_vals)
 
-    def to_transformed(self, free_values: Dict[str, Scalar]) -> Dict[str, float]:
+        # Apply scenarios if present
+        config = dict(self.model.base_config)
+        for scenario_name in self.spec.scenarios:
+            if scenario_name not in self.model._scenarios:
+                raise ValueError(f"Unknown scenario: {scenario_name}")
+            scenario = self.model._scenarios[scenario_name]
+            params_M, config = scenario.apply(params_M, config)
+
+        # Execute simulation
+        state = self.model.build_sim(params_M, MappingProxyType(config))
+        raw = self.model.run_sim(state, seed)
+        return self.model.extract_outputs(raw, seed)
+
+    def to_transformed(self, **free_values: Scalar) -> Dict[str, float]:
         """Convert natural P-space values to transformed coordinates for optimizer.
 
         Applies forward transforms to each free parameter.
         """
         out = {}
-        for name in self.free:
+        for name in self.spec.view.free:
             val = float(free_values[name])
-            t = self.transforms.get(name)
+            t = self.spec.transforms.get(name)
             out[name] = t.forward(val) if t else val
         return out
 
-    def from_transformed(self, coords: Dict[str, float]) -> Dict[str, Scalar]:
+    def from_transformed(self, **coords: float) -> Dict[str, Scalar]:
         """Convert optimizer coordinates back to natural P-space.
 
         Applies inverse transforms to restore physical values.
         """
         out = {}
-        for name in self.free:
-            t = self.transforms.get(name)
+        for name in self.spec.view.free:
+            t = self.spec.transforms.get(name)
             out[name] = t.backward(coords[name]) if t else coords[name]
         return out
 
-    # ---- Execution Helpers ----
+    def bounds(self, transformed: bool = False) -> Dict[str, Tuple[float, float]]:
+        """Get bounds for free parameters.
 
-    def paramset_for(self, **free_vals: Scalar) -> ParameterSet:
-        """Convert free P-space values to complete M-space ParameterSet.
+        Args:
+            transformed: If True and transforms present, return transformed bounds
 
-        Handles reparameterization if present.
+        Returns:
+            Dictionary of parameter name to (min, max) tuples
         """
-        # Apply inverse reparam if present
-        if self.reparam_spec:
-            free_vals = self.reparam_spec.apply_inverse(free_vals)
+        bounds = {}
+        meta = self.model.space.by_name()
 
-        # Validate we have exactly the free params
-        provided = set(free_vals.keys())
-        expected = set(self.free) if not self.reparam_spec else set(self.reparam_spec.free)
+        for name in self.spec.view.free:
+            spec = meta[name]
+            lo, hi = float(spec.min), float(spec.max)
 
-        if provided != expected:
-            missing = expected - provided
-            extra = provided - expected
-            msgs = []
-            if missing:
-                msgs.append(f"missing: {sorted(missing)}")
-            if extra:
-                msgs.append(f"unexpected: {sorted(extra)}")
-            raise ValueError(f"paramset_for() error: {'; '.join(msgs)}")
+            # Apply transform if requested
+            if transformed and name in self.spec.transforms:
+                t = self.spec.transforms[name]
+                lo_t, hi_t = t.forward(lo), t.forward(hi)
+                # Non-linear transforms can invert bounds
+                if lo_t > hi_t:
+                    lo_t, hi_t = hi_t, lo_t
+                bounds[name] = (lo_t, hi_t)
+            else:
+                bounds[name] = (lo, hi)
 
-        # Combine fixed + free for complete M
-        params_M = {**self.fixed, **free_vals}
-        return ParameterSet(params_M)
-
-    def simulate(self, *, seed: int, **free_vals: Scalar) -> Dict[str, pl.DataFrame]:
-        """Run simulation with free parameters only.
-
-        Converts P→M internally, uses pre-composed config.
-        Parameter patches were already applied during scenarios() call.
-        """
-        # P → M conversion (includes reconciled patches from scenarios)
-        pset = self.paramset_for(**free_vals)
-
-        # Use pre-composed config (no re-application of patches)
-        config = MappingProxyType({**self.model.base_config, **self.composed_config})
-
-        # Execute simulation
-        state = self.model.build_sim(pset, config)
-        raw = self.model.run_sim(state, seed)
-        return self.model.extract_outputs(raw, seed)
+        return bounds
 
     # ---- Cloud Export: Always M-space ----
 
     def to_yaml_runs(self,
                      runs: List[Tuple[Dict[str, Scalar], int]],
-                     outputs: Optional[List[str]] = None,
-                     scenario_branches: Optional[List[Union[str, List[str]]]] = None) -> str:
+                     outputs: Optional[List[str]] = None) -> str:
         """Export specific P-space runs as M-space YAML.
 
         Args:
             runs: List of (free_params, seed) tuples
             outputs: Subset of outputs to include
-            scenario_branches: Override scenarios (default: current stack)
-                Can be strings (single scenario) or lists (stacks)
 
         Returns:
             YAML string for cloud execution
@@ -1933,24 +1794,20 @@ class ModelVariant:
         # Get entry record
         rec = self.model.__class__.compile_entrypoint()
 
-        # Default to current stack
-        if scenario_branches is None:
-            branches = [list(self.scenario_stack) if self.scenario_stack else ["baseline"]]
-        else:
-            # Normalize to lists
-            branches = []
-            for b in scenario_branches:
-                if isinstance(b, str):
-                    branches.append([b])
-                else:
-                    branches.append(list(b))
+        # Use scenarios from spec
+        branches = [list(self.spec.scenarios) if self.spec.scenarios else ["baseline"]]
 
         # Convert P-space runs to M-space
         m_runs = []
         for free_params, seed in runs:
-            pset = self.paramset_for(**free_params)
+            params_M = self.spec.view.bind(**free_params)
+            # Apply scenario patches
+            for scenario_name in self.spec.scenarios:
+                scenario = self.model._scenarios[scenario_name]
+                params_M, _ = scenario.apply(params_M, {})
+
             m_runs.append({
-                "params_M": dict(pset.values),
+                "params_M": dict(params_M.values),
                 "seed": int(seed)
             })
 
@@ -1963,8 +1820,8 @@ class ModelVariant:
             "runs": m_runs,
             "variant_key": variant_key(
                 class_name=self.model.__class__.__name__,
-                stack=self.scenario_stack,
-                fixed=dict(self.fixed)
+                stack=self.spec.scenarios,
+                fixed=dict(self.spec.view.fixed)
             )
         }
 
@@ -1976,8 +1833,7 @@ class ModelVariant:
     def to_yaml_sweep(self,
                       sweep: Dict[str, List[Scalar]],
                       seeds: List[int],
-                      outputs: Optional[List[str]] = None,
-                      scenario_branches: Optional[List[Union[str, List[str]]]] = None) -> str:
+                      outputs: Optional[List[str]] = None) -> str:
         """Export P-space sweep as expanded M-space YAML.
 
         Builds Cartesian product locally, converts to M-space.
@@ -1986,18 +1842,14 @@ class ModelVariant:
             sweep: Parameter names to values (free params only)
             seeds: List of random seeds
             outputs: Subset of outputs
-            scenario_branches: Scenarios to run (can be stacks)
 
         Returns:
             YAML with fully expanded M-space runs
         """
-        # Validate sweep params are free (or reparam free)
-        if self.reparam_spec:
-            expected_free = set(self.reparam_spec.free)
-        else:
-            expected_free = set(self.free)
-
+        # Validate sweep params are free
+        expected_free = set(self.spec.view.free)
         sweep_params = set(sweep.keys())
+
         if not sweep_params.issubset(expected_free):
             extra = sweep_params - expected_free
             raise ValueError(
@@ -2024,96 +1876,8 @@ class ModelVariant:
             for seed in seeds:
                 runs.append((free_dict, seed))
 
-        return self.to_yaml_runs(runs, outputs=outputs, scenario_branches=scenario_branches)
+        return self.to_yaml_runs(runs, outputs=outputs)
 
-    def to_yaml_reparam(self,
-                        reparam_sweep: Dict[str, List[Scalar]],
-                        seeds: List[int],
-                        outputs: Optional[List[str]] = None,
-                        scenario_branches: Optional[List[Union[str, List[str]]]] = None) -> str:
-        """Export reparameterized sweep as M-space YAML.
-
-        Useful when already in reparam mode.
-
-        Args:
-            reparam_sweep: Sweep in reparameterized space
-            seeds: List of seeds
-            outputs: Subset of outputs
-            scenario_branches: Scenarios to run
-
-        Returns:
-            YAML with reparameterization resolved to M-space
-        """
-        if not self.reparam_spec:
-            raise ValueError("to_yaml_reparam requires reparameterization to be set")
-
-        # Just use regular sweep - paramset_for handles reparam
-        return self.to_yaml_sweep(
-            reparam_sweep, seeds,
-            outputs=outputs,
-            scenario_branches=scenario_branches
-        )
-
-    def compile_local(self) -> Callable[[Dict[str, Scalar], int], Dict[str, pl.DataFrame]]:
-        """Compile to a local function returning DataFrames.
-
-        Returns a function that takes (free_params, seed) and returns DataFrames.
-        All configuration (scenarios, transforms) is captured in the closure.
-
-        For cloud execution with IPC bytes, use BaseModel.compile_entrypoint().
-        """
-        # Capture configuration in closure
-        model = self.model
-        fixed = dict(self.fixed)
-        composed_config = dict(self.composed_config)
-
-        def wire_function(free_vals: Dict[str, Scalar], seed: int) -> Dict[str, pl.DataFrame]:
-            """Wire function with signature (params, seed) -> outputs."""
-            # Build complete parameter set
-            params_M = {**fixed, **free_vals}
-            pset = ParameterSet(params_M)
-
-            # Apply composed config
-            config = MappingProxyType({**model.base_config, **composed_config})
-
-            # Execute simulation pipeline
-            state = model.build_sim(pset, config)
-            raw = model.run_sim(state, seed)
-            return model.extract_outputs(raw, seed)
-
-        return wire_function
-
-    def bounds(self, transformed: bool = False) -> Dict[str, Tuple[float, float]]:
-        """Get bounds for free parameters.
-
-        Args:
-            transformed: If True and transforms present, return transformed bounds
-        """
-        bounds = {}
-        meta = self.model.space.by_name()
-
-        params_to_check = self.reparam_spec.free if self.reparam_spec else self.free
-
-        for name in params_to_check:
-            if name in meta:  # Natural parameter
-                spec = meta[name]
-                lo, hi = float(spec.lower), float(spec.upper)
-
-                # Apply transform if requested
-                if transformed and name in self.transforms:
-                    t = self.transforms[name]
-                    lo_t, hi_t = t.forward(lo), t.forward(hi)
-                    # Non-linear transforms can invert bounds, so always sort
-                    if lo_t > hi_t:
-                        lo_t, hi_t = hi_t, lo_t
-                    bounds[name] = (lo_t, hi_t)
-                else:
-                    bounds[name] = (lo, hi)
-            else:  # Reparameterized parameter
-                # Would need bounds from reparam spec
-                bounds[name] = (-float('inf'), float('inf'))
-
-        return bounds
 ```
 
 ### Architectural Justification: Why Scenarios Live on the Variant
@@ -2134,22 +1898,28 @@ A single object (the variant) determines free/fixed parameters, transforms, scen
 
 #### Why Not a Separate Scenario Builder?
 - **Avoiding double LWW layers**: Splitting scenario composition into another builder creates two Last-Write-Wins layers and two places where conflicts can happen
-- **Provenance clarity**: Keeping everything on ModelVariant ensures the complete configuration is captured in one place
-- **Better ergonomics**: Most users want to write clean, fluent code:
+- **Provenance clarity**: Keeping everything in VariantSpec ensures the complete configuration is captured in one place
+- **Clear separation**: VariantSpec holds all configuration; ModelVariant just executes
 
 ```python
-# Clean, single-chain API
-dm = (model
-    .variant("lockdown", "vaccination")  # Start with scenarios
-    .fix(population=10_000, gamma=0.07, initial_infected=10)
-    .with_config(output_format="parquet")  # Ad-hoc config
-    .with_transforms(beta=Logit01(), gamma=Logit01()))
+# Clear separation: configuration then execution
+spec = VariantSpec(
+    view=ParameterView.from_fixed(model.space, {
+        "population": 10_000,
+        "gamma": 0.07,
+        "initial_infected": 10
+    }),
+    scenarios=("lockdown", "vaccination"),
+    transforms={"beta": Logit01(), "gamma": Logit01()}
+)
+
+variant = ModelVariant(model, spec)
 
 # Run simulation with just free parameters
-tables = dm.simulate(seed=7, beta=0.32, gamma=0.11)
+tables = variant.simulate(seed=7, beta=0.32, gamma=0.11)
 ```
 
-A second builder makes this harder without adding power. The variant pattern provides all the flexibility needed while maintaining a single, clear configuration surface.
+The VariantSpec pattern provides all the flexibility needed while maintaining clear separation between configuration and execution.
 
 ## Part II: User Workflows
 
@@ -2220,15 +1990,19 @@ for beta in [0.2, 0.3, 0.4]:
         results = model.simulate(params_M, seed=42)
         print(f"β={beta}, γ={gamma}: peak={results['compartments']['I'].max()}")
 
-# 3. Use ModelVariant for cleaner syntax
-derived = ModelVariant(model, view)
+# 3. Use VariantSpec and ModelVariant for cleaner syntax
+spec = VariantSpec(view=view)
+variant = ModelVariant(model, spec)
 
 # Now can pass just P-space parameters
-results = derived.simulate(seed=42, beta=0.3, gamma=0.1)
+results = variant.simulate(seed=42, beta=0.3, gamma=0.1)
 
 # 4. Compare scenarios (patches, not transforms)
-baseline = ModelVariant(model, view)  # No scenario = baseline
-lockdown = derived.scenario("lockdown")  # Derives new model with patches
+baseline_spec = VariantSpec(view=view)  # No scenario = baseline
+lockdown_spec = VariantSpec(view=view, scenarios=("lockdown",))
+
+baseline = ModelVariant(model, baseline_spec)
+lockdown = ModelVariant(model, lockdown_spec)
 
 # Same parameters, different scenarios
 P = {"beta": 0.3, "gamma": 0.1}
@@ -2245,43 +2019,42 @@ results_lockdown = lockdown.simulate(seed=42, **P)
 
 ```python
 # 1. Set up transforms for optimization (NOT scenarios)
-derived_opt = derived.with_transforms(
-    beta=AffineSqueezedLogit(),  # [0,1] bounded
-    gamma=AffineSqueezedLogit()   # [0,1] bounded
+spec_opt = VariantSpec(
+    view=view,
+    transforms={
+        "beta": AffineSqueezedLogit(),  # [0,1] bounded
+        "gamma": AffineSqueezedLogit()   # [0,1] bounded
+    }
 )
+variant_opt = ModelVariant(model, spec_opt)
 
-# 2. Create calibration model
-calib_model = ModelVariant(model, view, tview)
+# 2. Get bounds for optimization
+bounds = variant_opt.bounds(transformed=True)
 
-# 3. Compile P-space function for optimization
-sim_fn = calib_model.compile_local()  # Returns fn(P, seed) -> DataFrames
-
-# 4. Optimizer works in transformed space
+# 3. Optimizer works in transformed space
 from scipy.optimize import differential_evolution
 
 def loss(Z_coords):  # Z = transformed coordinates
     # Convert from transformed to natural P
-    P_natural = calib_model.from_transformed(
-        dict(zip(["beta", "gamma"], Z_coords))
+    P_natural = variant_opt.from_transformed(
+        **dict(zip(["beta", "gamma"], Z_coords))
     )
 
     # Run simulation
-    results_bytes = wire_fn(P_natural, seed=42)
+    results = variant_opt.simulate(seed=42, **P_natural)
 
     # Compute loss
-    results = deserialize(results_bytes)
     return compute_loss(results, targets)
 
 # Get bounds in transformed space
-bounds = calib_model.bounds(transformed=True)
 bounds_list = [(bounds["beta"]), (bounds["gamma"])]
 
 # Run optimization
 opt_result = differential_evolution(loss, bounds_list)
 
-# 5. Convert back to natural parameters
-optimal_P = calib_model.from_transformed(
-    dict(zip(["beta", "gamma"], opt_result.x))
+# 4. Convert back to natural parameters
+optimal_P = variant_opt.from_transformed(
+    **dict(zip(["beta", "gamma"], opt_result.x))
 )
 print(f"Optimal: β={optimal_P['beta']:.3f}, γ={optimal_P['gamma']:.3f}")
 ```
@@ -2295,26 +2068,19 @@ print(f"Optimal: β={optimal_P['beta']:.3f}, γ={optimal_P['gamma']:.3f}")
 # Fix optimal values, vary one at a time
 optimal = {"beta": 0.35, "gamma": 0.095}
 
-# Create new view with all optimal except beta
-# Note: returns NEW view (immutable)
-sens_view = view.fix(**optimal)  # Fix both
-sens_view = ParameterView.from_fixed(
-    model.space,
-    **{**view.fixed, **optimal, "beta": view.fixed.get("beta", 0.35)}
-)
-# Remove beta from fixed to make it free
+# Create new view with optimal gamma fixed but beta free
 sens_view = ParameterView.from_fixed(
     model.space,
     population=10000,
     contact_rate=4.0,
-    gamma=0.07,
     initial_infected=10,
     gamma=0.095  # Fixed at optimal
 )
 # Now only beta is free
 
 # Sweep beta around optimal
-sens_model = ModelVariant(model, sens_view)
+sens_spec = VariantSpec(view=sens_view)
+sens_model = ModelVariant(model, sens_spec)
 beta_values = np.linspace(0.25, 0.45, 20)
 sensitivity_results = []
 
@@ -2506,14 +2272,14 @@ Reparameterizations restructure the parameter space and add complexity:
 
 We defer this to post-MVP to keep the initial system simple and correct.
 
-### Why ModelVariant as Fluent Builder
+### Why ModelVariant is Simple
 
-ModelVariant serves as the single fluent interface for P-space operations:
-- **Single type**: Lower cognitive load than separate builder class
-- **Immutable**: Every operation returns new variant (no state mutations)
-- **Clear separation**: BaseModel=engine (M-space), ModelVariant=ergonomics (P-space)
-- **Test surface**: Fewer classes means simpler testing
-- **Identity & infra**: ModelVariant knows fixed/free/scenario/reparam - perfect for YAML export
+ModelVariant is now just a simple pairing of BaseModel + VariantSpec:
+- **Single responsibility**: Only executes the variant, doesn't configure it
+- **Clear separation**: VariantSpec=configuration, ModelVariant=execution
+- **No fluent API**: All configuration happens in VariantSpec
+- **Immutable**: Both model and spec are frozen
+- **Identity from spec**: VariantSpec carries all variant metadata
 
 ### Why Scenario Stacks (Composition)
 

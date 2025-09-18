@@ -1,60 +1,97 @@
-# Core Principles: One Model, Infinite Variants, One Wire Function
-
-## Critical Caveat: Code Identity Matters
-
-**⚠️ This entire architecture assumes the model code is immutable.** If the simulation engine changes (bug fixes, algorithm updates, refactoring), you have a DIFFERENT model that produces DIFFERENT results. This is why:
-
-1. **Model identity = code hash**: Every model is identified by its content hash (e.g., `SIRModel@a1b2c3d4`)
-2. **Bundle system required**: The `modelops-bundle` project captures and versions the exact code
-3. **Cache invalidation**: When code changes, the hash changes, invalidating all cached results
-4. **Reproducibility**: Results are only reproducible with the EXACT code version
-
-Without proper code versioning via bundles, you could have:
-- **Silent bugs**: Updated code returning cached results from old code
-- **Irreproducibility**: Can't reproduce old results after code changes
-- **Cache pollution**: Mixed results from different code versions
-
-**The bundle system (separate project) solves this by:**
-- Creating content-addressed bundles of model code
-- Computing deterministic digests
-- Shipping exact code from laptop to cloud
-- Ensuring cache keys include code hash
+# Core Principles: One BaseModel, Infinite Variants (and One Wire Function)
 
 ## The Fundamental Insight
 
-**Every possible variant of a model - regardless of fixed parameters, scenarios, or transforms - compiles to calls to the SAME wire function (for the SAME code version).**
+**Most common "variants" of a model a user will want to create --regardless of
+fixed parameters, scenarios, or transforms-- compile to calls to the SAME wire
+function (for the same code version).**
 
 This is the architectural keystone of Calabaria. It enables:
-- **Deploy once, explore infinitely**: Ship model code once, explore any parameter subspace
+
+- **Deploy once, explore infinitely**: Ship model code once, explore any
+  parameter subspace
 - **Complete decoupling**: Research configuration is separate from model logic
 - **Perfect caching**: Same inputs always produce same outputs (for same code)
 - **Infinite scalability**: One wire function handles all variant combinations
 
+## The Software Design of BaseModel
+
+Calabaria's `BaseModel` class function is the most important in Calabaria, and
+it's worth explaining the underlying idea and what it brings. In software
+engineering terms, `BaseModel` is a *Facade-style Service Provider Interface
+(SPI)*. It's worth unpacking this jargon and explaining the two facets of
+`BaseModel`
+
+ 1. **Research-user-facing facade**: a *facade* class serves as a simple,
+    front-facing interface to mask complex operations in highly usable layer.
+    The `BaseModel` class masks engine specifics behind a thin shell, leaving
+    only *ergonomic* modeling-specific semantics exposed, such as parameter
+    space adjustments, scenarios, transforms, and reparameterizations. Part of
+    `BaseModel`'s design is as a *template method* host: high-level methods
+    like `simulate()` are *fixed*, as they are constructed from subclass's
+    `build_sim()` and `run_sim()` methods automatically.
+
+ 2. **Service Provider Interface**: behind the `BaseModel` facade is a Service
+    Provider Interface. Specifically, we can think of this as a *port* to a
+    service (simulation of a model, through the `simulate()` method) that is
+    equipped with all the extras outside frameworks need to interact with the
+    underlying model (such as the parameters, their bounds, etc). **Any outside
+    framework that needs to interact with a simulation model can do so by
+    *calling into* the model via its `BaseModel` class.** This is classic
+    *inversion of control* (or the "Hollywood Principle: don’t call us, we’ll
+    call you"). This allows an outside framework (e.g. for calibration) to
+    orchestrate calls to the simulation model externally -- exactly what they
+    need to do!
+
+
 ## The Three Unities
 
-### 1. One Model
-A single `BaseModel` subclass contains all the computational logic:
-- Parameter definitions (M-space)
+### 1. One Model A single `BaseModel` subclass contains all the computational
+logic:
+- Parameter definitions (the *model parameter space*, or M-space)
 - Simulation dynamics (`build_sim`, `run_sim`)
 - Scenario definitions
 - Output extractors
 
 ### 2. Infinite Variants
+
 Unlimited research configurations through `VariantSpec`:
-- Different fixed/free parameter splits
+- Different fixed/free parameter splits (which are a subspace of M-space, known
+  as the P-space)
 - Various scenario combinations
 - Alternative parameter transforms
 - Distinct output selections
 
 ### 3. One Wire Function
-A single cloud entry point that accepts M-space parameters:
+
+A single cloud entry point that only accepts M-space parameters:
+
 ```python
 def wire(params_M: Dict, seed: int, scenario_stack: Tuple, outputs: List) -> WireResponse
 ```
 
+There are many benefits of keeping all simulations in the *full* model parameter
+space (M-space):
+
+- **Fixing a parameter does not invalidate the cache**: Whether beta is fixed
+  or free, the wire call with beta=0.3 produces the same result and hits the
+  same cache entry
+- **Research flexibility without redeployment**: Any researcher can fix any
+  parameter combination without changing the deployed code
+- **Consistent provenance**: The same (model_hash, params_M, scenarios, seed)
+  tuple always produces the same result, regardless of how you arrived at those
+  parameters
+- **Simplified infrastructure**: Cloud systems only need to understand M-space,
+  not the complexities of different P-space configurations
+- **Perfect result sharing**: Two researchers using different fixed/free splits
+  but the same final parameters get identical results from cache
+- **Deterministic identity**: Cache keys depend only on actual computation
+  inputs, not on research methodology
+
 ## The Core Principle in Action
 
 ### Local Research Environment
+
 ```python
 # Researcher creates a variant for their specific analysis
 spec = VariantSpec(
@@ -67,11 +104,12 @@ spec = VariantSpec(
 )
 
 # They work in P-space (free parameters only)
-runner = ModelRunner(model, spec)
-result = runner.simulate({"beta": 0.3, "gamma": 0.1}, seed=42)
+variant = ModelVariant(model, spec)
+result = variant.simulate(seed=42, beta=0.3, gamma=0.1)
 ```
 
 ### Cloud Execution Environment
+
 ```python
 # The SAME model wire function handles ALL variants
 wire = REGISTRY.get_wire("examples.sir.SIRModel@a1b2c3d4")
@@ -109,12 +147,12 @@ The magic happens in the P→M translation:
 ┌─────────────────────────────────────────────────────────────┐
 │                    LOCAL (Research)                         │
 ├─────────────────────────────────────────────────────────────┤
-│  VariantSpec                                               │
-│  ├── Fixed: {population: 10k}                              │
-│  ├── Free: {beta, gamma}                                   │
-│  └── Scenarios: ["lockdown"]                               │
+│  VariantSpec                                                │
+│  ├── Fixed: {population: 10k}                               │
+│  ├── Free: {beta, gamma}                                    │
+│  └── Scenarios: ["lockdown"]                                │
 │                                                             │
-│  researcher.simulate({"beta": 0.3, "gamma": 0.1})          │
+│  researcher.simulate({"beta": 0.3, "gamma": 0.1})           │
 └─────────────────────────┬───────────────────────────────────┘
                           │
                     YAML/JSON Export
@@ -123,31 +161,34 @@ The magic happens in the P→M translation:
 ┌─────────────────────────────────────────────────────────────┐
 │                    CLOUD (Execution)                        │
 ├─────────────────────────────────────────────────────────────┤
-│  # Reconstruct M-space parameters                          │
+│  # Reconstruct M-space parameters                           │
 │  params_M = {                                               │
-│      **fixed_from_variant,  # {population: 10k}            │
-│      **free_from_researcher  # {beta: 0.3, gamma: 0.1}     │
+│      **fixed_from_variant,  # {population: 10k}             │
+│      **free_from_researcher  # {beta: 0.3, gamma: 0.1}      │
 │  }                                                          │
 │                                                             │
-│  wire(params_M, seed, scenario_stack, outputs)             │
+│  wire(params_M, seed, scenario_stack, outputs)              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Why This Matters
 
 ### For Researchers
+
 - **Work in natural space**: Only specify parameters they're varying
 - **Infinite flexibility**: Any combination of fixed/free/scenarios works
 - **Zero deployment**: Never touch cloud infrastructure
 - **Perfect reproducibility**: Same spec = same results
 
 ### For Infrastructure
+
 - **Single deployment**: One model registration serves all variants
 - **Perfect caching**: `hash(model + params + scenarios) = result`
 - **No variant code**: Variants are just configuration, not code
 - **Trivial scaling**: All variants go through same wire function
 
 ### For Science
+
 - **Clean separation**: Model logic vs research configuration
 - **Composability**: Scenarios compose, transforms compose, variants compose
 - **Provenance**: Every result traces back to exact configuration
@@ -156,16 +197,29 @@ The magic happens in the P→M translation:
 ## Common Misconceptions
 
 ### ❌ "Each variant needs its own wire function"
-**Reality**: All variants use the same wire. The wire accepts complete M-space parameters; variants just specify how to construct those parameters.
+
+**Reality**: All variants use the same wire. The wire accepts complete M-space
+parameters; variants just specify how to construct those parameters. Only when
+the underlying model code changes or alters its M-space model parameters do we
+need a new wire function. These changes are not *model variants* but *different
+models*.
 
 ### ❌ "Scenarios are different entry points"
-**Reality**: Scenarios are data (patches) passed to the single wire function via the `scenario_stack` parameter.
+
+**Reality**: Scenarios are data (config or parameter patches) passed to the
+single wire function via the `scenario_stack` parameter.
 
 ### ❌ "Transforms happen in the cloud"
-**Reality**: Transforms happen locally for optimization. The cloud always receives natural M-space parameters.
+
+**Reality**: Transforms happen locally (when it is more natural for a user to
+work in a transformed parameter space) or for optimization (when it is more
+natural to calibrate in a transformed parameter space). The cloud simulation
+service always receives natural M-space parameters. 
 
 ### ❌ "Fixed parameters are baked into deployed code"
-**Reality**: Fixed parameters are configuration. The wire function receives ALL parameters every time.
+
+**Reality**: Fixed parameters are configuration. The wire function receives
+*all* parameters every time (in M-space).
 
 ## The Deployment Story
 
@@ -206,15 +260,162 @@ variant_D = VariantSpec(...)  # Studying seasonal effects
 
 ```
 ┌──────────────────────────────────────┐
+│       ModelRegistry (Discovery)      │  ← Global registry
+├──────────────────────────────────────┤
 │          BaseModel (Logic)           │  ← Deployed once
 ├──────────────────────────────────────┤
 │      Wire Function (Interface)       │  ← Single entry point
 ├──────────────────────────────────────┤
 │       VariantSpec (Configuration)    │  ← Infinite variations
 ├──────────────────────────────────────┤
-│      ModelRunner (Local Execution)   │  ← Research convenience
+│      ModelVariant (Local Execution)  │  ← Research convenience
 └──────────────────────────────────────┘
 ```
+
+## Model Registry: Enabling Discovery and Deployment
+
+The `ModelRegistry` is the backbone that enables "One Model, Infinite Variants":
+
+### Thread-Safe Registration
+
+```python
+# Register a model (happens once at deployment)
+class SIRModel(BaseModel):
+    # ... implementation ...
+    pass
+
+# Registration creates an EntryRecord with all metadata
+record = SIRModel.compile_entrypoint(alias="SIR with Vaccination")
+# Automatically registered in REGISTRY
+```
+
+### Discovery and Search
+
+```python
+# List all available models
+models = REGISTRY.list_models()
+
+# ['examples.sir.SIRModel@a1b2c3d4', 'examples.seir.SEIRModel@5f6g7h8i']
+
+# Search for specific capabilities
+vaccination_models = REGISTRY.search(has_scenario="vaccination")
+epidemic_models = REGISTRY.search(module_pattern="*epidemic*")
+
+# Get model metadata
+entry = REGISTRY.get("examples.sir.SIRModel@a1b2c3d4")
+print(f"Scenarios: {entry.scenarios}")  # ['baseline', 'lockdown', 'vaccination']
+print(f"Outputs: {entry.outputs}")      # ['incidence', 'prevalence', 'summary']
+```
+
+### EntryRecord: Complete Model Interface
+Each registered model has an `EntryRecord` containing:
+- **Identity**: Unique ID with code hash (e.g., `SIRModel@a1b2c3d4`)
+- **ABI Version**: Wire protocol version for compatibility (e.g., `calabaria.wire.v1`)
+- **Import Path**: Module and class names (no heavy closures)
+- **Discovery Info**: Available scenarios, outputs, parameter specs
+- **Wire Factory**: Creates wire functions on demand
+
+This design ensures:
+- **No heavy closures**: Wire functions created from import paths
+- **Full serialization**: Everything can be JSON-encoded for persistence
+- **Version safety**: ABI versioning allows protocol evolution
+- **Lazy loading**: Models imported only when needed
+
+### Wire Protocol Hardening
+
+The production wire protocol addresses critical issues:
+
+1. **Protocol Versioning via WireABI**
+   ```python
+   class WireABI(str, Enum):
+       V1 = "calabaria.wire.v1"  # (params_M, seed, scenario_stack, outputs)
+       V2 = "calabaria.wire.v2"  # Future: adds config overrides
+   ```
+   Different versions can coexist, enabling protocol evolution without breaking deployments.
+
+2. **Serializable Parameter Specifications**
+   ```python
+   @dataclass(frozen=True)
+   class SerializedParameterSpec:
+       """Guaranteed JSON-serializable specification."""
+       name: str
+       min: float
+       max: float
+       kind: str  # "float" or "int"
+   ```
+   Unlike runtime ParameterSpec, these are designed for storage and transmission.
+
+3. **Import Path Pattern (No Heavy Closures)**
+   ```python
+   def get_wire_factory(self) -> Callable[[], WireFunction]:
+       """Returns factory that imports model on-demand."""
+       def factory():
+           module = importlib.import_module(self.module_name)
+           model_class = getattr(module, self.class_name)
+           return self._make_v1_wire(model_class)
+       return factory
+   ```
+   Models are imported lazily when wire functions are needed, not captured in closures.
+
+4. **Thread-Safe Global Registry**
+   ```python
+   class ModelRegistry:
+       def register(self, record: EntryRecord) -> None:
+           """Thread-safe registration with validation."""
+           # Validates wire can be created
+           # Checks for duplicates
+           # Thread-safe with locks
+   ```
+
+### Registry Persistence and Federation
+
+```python
+# Save registry for deployment
+registry_data = REGISTRY.to_json()
+with open("model_registry.json", "w") as f:
+    json.dump(registry_data, f, indent=2)
+
+# Load in cloud environment
+REGISTRY.from_json(json.load(open("model_registry.json")))
+
+# Execute any registered model
+wire = REGISTRY.get_wire("examples.sir.SIRModel@a1b2c3d4")
+response = wire(
+    params_M={...},  # Always complete M-space
+    seed=42,
+    scenario_stack=("baseline", "lockdown"),
+    outputs=["incidence"]
+)
+```
+
+### Wire Response Format
+
+The wire function returns a standardized `WireResponse`:
+
+```python
+@dataclass(frozen=True)
+class WireResponse:
+    """Standardized response from any wire function."""
+    outputs: Dict[str, bytes]        # Output name → Arrow IPC bytes
+    provenance: Dict[str, Any]       # Execution metadata
+
+    def get_dataframe(self, name: str) -> pl.DataFrame:
+        """Deserialize specific output to DataFrame."""
+        return pl.read_ipc(io.BytesIO(self.outputs[name]))
+```
+
+Provenance includes:
+- Model identity and hash
+- Complete parameters used
+- Scenario stack applied
+- Seed and timestamp
+- ABI version for reproducibility
+
+This standardized format ensures:
+- **Efficient serialization**: Arrow IPC for DataFrames
+- **Complete provenance**: Full audit trail
+- **Language agnostic**: Can be consumed by any system
+- **Cache-friendly**: Deterministic serialization
 
 ## Cache Efficiency
 
@@ -346,26 +547,97 @@ These invariants MUST be maintained:
 - **Parameter preprocessing in cloud**: Keep cloud pure
 - **Stateful variants**: All state must be explicit
 
+## Production Deployment Flow
+
+The complete deployment story leveraging all components:
+
+```python
+# 1. Developer writes model ONCE
+class EpidemicModel(BaseModel):
+    def __init__(self):
+        # Define complete parameter space
+        super().__init__(ParameterSpace([...]))
+
+    def build_sim(self, params, config):
+        # Model dynamics
+        pass
+
+# 2. Bundle and register (ONCE per code version)
+bundle = Bundle.from_model(EpidemicModel)
+bundle.push()  # Upload to cloud storage
+
+record = EpidemicModel.compile_entrypoint(
+    alias="COVID-19 Model v2.1",
+    bundle_digest=bundle.digest
+)
+
+# 3. Registry persists to cloud
+with open("registry.json", "w") as f:
+    json.dump(REGISTRY.to_json(), f)
+# Upload to cloud storage/database
+
+# 4. Cloud execution environment loads registry
+REGISTRY.from_json(cloud_storage.get("registry.json"))
+
+# 5. Any researcher can now use ANY variant
+wire = REGISTRY.get_wire("EpidemicModel@abc123")
+
+# Variant A: Urban dynamics
+response_a = wire(
+    params_M={...},  # Complete parameters for urban scenario
+    seed=42,
+    scenario_stack=("urban", "high_density"),
+    outputs=["hospitalizations"]
+)
+
+# Variant B: Rural dynamics (SAME WIRE)
+response_b = wire(
+    params_M={...},  # Complete parameters for rural scenario
+    seed=43,
+    scenario_stack=("rural", "low_density"),
+    outputs=["cases", "deaths"]
+)
+
+# Both hit cache if parameters match previous runs
+```
+
 ## Summary
 
 The "One Model, Infinite Variants, One Wire Function" principle is not just an implementation detail - it's the foundational architecture that enables:
 
 1. **Separation of concerns** between model logic and research configuration
 2. **Infinite flexibility** without deployment complexity
-3. **Perfect reproducibility** through pure functions
-4. **Efficient caching** through canonical representations
-5. **Seamless scaling** through stateless execution
+3. **Perfect reproducibility** through pure functions and versioned bundles
+4. **Efficient caching** through canonical M-space representations
+5. **Seamless scaling** through stateless, serializable execution
+6. **Production safety** through thread-safe registries and ABI versioning
 
 Every design decision should be evaluated against this principle: **Does it maintain the unity of the wire function while enabling variant flexibility?**
 
-If yes, proceed. If no, reconsider.
+The hardened wire protocol ensures this principle scales to production:
+- **No heavy closures** → Import paths and factories
+- **Protocol evolution** → ABI versioning
+- **Thread safety** → Validated, locked registry
+- **Full persistence** → JSON serialization
 
-## The Slogan
+## The Architecture Promise
 
 > **"Write Once, Explore Everywhere, Cache Everything"**
 
-- Write the model once
-- Explore any parameter subspace
-- Cache every unique computation
+This is achieved through:
+- **Write once**: Single BaseModel implementation
+- **Deploy once**: One wire function per code version
+- **Configure infinitely**: Unlimited variants via VariantSpec
+- **Cache perfectly**: Deterministic M-space identity
+- **Scale effortlessly**: Stateless, pure execution
+
+The combination of:
+- Immutable parameter system
+- Pure wire functions
+- Content-addressed bundles
+- Thread-safe registry
+- Versioned protocols
+
+Creates a system where **research flexibility meets production reliability**.
 
 This is the promise of Calabaria's architecture.

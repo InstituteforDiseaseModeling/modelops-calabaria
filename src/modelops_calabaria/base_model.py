@@ -11,8 +11,9 @@ Key invariants:
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Mapping, Optional, Callable, List, Union, final
+from typing import Dict, Any, Mapping, Optional, Callable, List, Union, final, Type
 from types import MappingProxyType
+import hashlib
 import inspect
 
 import polars as pl
@@ -25,9 +26,9 @@ from .constants import SEED_COL
 class BaseModel(ABC):
     """Pure functional model with sealed registries.
 
-    Uses decorators as markers; registration happens on instance
-    construction before seal. If 'baseline' is defined via decorator,
-    conflict_policy='lww' causes it to replace default; 'strict' raises.
+    Uses decorators as markers; registration happens on instance construction
+    before seal. If 'baseline' is defined via decorator, conflict_policy='lww'
+    (last write wins) causes it to replace default; 'strict' raises.
 
     Invariants enforced:
     - simulate() ONLY accepts ParameterSet (complete M)
@@ -291,20 +292,6 @@ class BaseModel(ABC):
         # Extract outputs (includes SEED_COL addition)
         return self.extract_outputs(raw, seed)
 
-    def variant(self, *scenario_names: str):
-        """Create ModelVariant for fluent P-space operations.
-
-        This is a placeholder that will be implemented when ModelVariant is added.
-
-        Args:
-            *scenario_names: Optional scenario stack
-
-        Returns:
-            NotImplemented (placeholder for future ModelVariant)
-        """
-        # Placeholder for future ModelVariant implementation
-        return NotImplemented
-
     def list_scenarios(self) -> List[str]:
         """List available scenario names.
 
@@ -340,3 +327,62 @@ class BaseModel(ABC):
             available = sorted(self._scenarios.keys())
             raise KeyError(f"Scenario '{name}' not found. Available: {available}")
         return self._scenarios[name]
+
+    @classmethod
+    def compile_entrypoint(cls, space: ParameterSpace) -> 'EntryRecord':
+        """Compile this model class into a wire protocol entry.
+
+        Creates an EntryRecord with all metadata needed for remote execution,
+        using import paths instead of closures. Registers in global REGISTRY.
+
+        Args:
+            space: The parameter space for this model
+
+        Returns:
+            The compiled EntryRecord (also registered in REGISTRY)
+
+        Example:
+            >>> from examples.sir import SIRModel
+            >>> space = ParameterSpace([...])
+            >>> entry = SIRModel.compile_entrypoint(space)
+            >>> print(entry.id)  # "examples.sir.SIRModel@a1b2c3d4"
+        """
+        from .wire_protocol import (
+            EntryRecord, SerializedParameterSpec, WireABI, REGISTRY
+        )
+
+        # Create temporary instance for introspection
+        temp_instance = cls(space)
+        temp_instance._seal()
+
+        # Generate stable hash from module + class
+        hash_input = f"{cls.__module__}.{cls.__name__}"
+        model_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:8]
+
+        # Create serializable parameter specs
+        param_specs = tuple(
+            SerializedParameterSpec.from_spec(spec)
+            for spec in space.specs
+        )
+
+        # Extract scenarios and outputs (sorted for stability)
+        scenarios = tuple(sorted(temp_instance._scenarios.keys()))
+        outputs = tuple(sorted(temp_instance._outputs.keys()))
+
+        # Create entry with import paths (not closures!)
+        entry = EntryRecord(
+            id=f"{cls.__module__}.{cls.__name__}@{model_hash}",
+            model_hash=model_hash,
+            abi_version=WireABI.V1,
+            module_name=cls.__module__,
+            class_name=cls.__name__,
+            scenarios=scenarios,
+            outputs=outputs,
+            param_specs=param_specs,
+            alias=getattr(cls, '__alias__', None),
+        )
+
+        # Register in global registry
+        REGISTRY.register(entry)
+
+        return entry
