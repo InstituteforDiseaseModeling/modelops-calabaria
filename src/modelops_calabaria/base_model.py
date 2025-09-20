@@ -13,7 +13,6 @@ Key invariants:
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Mapping, Optional, Callable, List, Union, final, Type
 from types import MappingProxyType
-import hashlib
 import inspect
 
 import polars as pl
@@ -328,61 +327,3 @@ class BaseModel(ABC):
             raise KeyError(f"Scenario '{name}' not found. Available: {available}")
         return self._scenarios[name]
 
-    @classmethod
-    def compile_entrypoint(cls, space: ParameterSpace) -> 'EntryRecord':
-        """Compile this model class into a wire protocol entry.
-
-        Creates an EntryRecord with all metadata needed for remote execution,
-        using import paths instead of closures. Registers in global REGISTRY.
-
-        Args:
-            space: The parameter space for this model
-
-        Returns:
-            The compiled EntryRecord (also registered in REGISTRY)
-
-        Example:
-            >>> from examples.sir import SIRModel
-            >>> space = ParameterSpace([...])
-            >>> entry = SIRModel.compile_entrypoint(space)
-            >>> print(entry.id)  # "examples.sir.SIRModel@a1b2c3d4"
-        """
-        from .wire_protocol import (
-            EntryRecord, SerializedParameterSpec, WireABI, REGISTRY
-        )
-
-        # Create temporary instance for introspection
-        temp_instance = cls(space)
-        temp_instance._seal()
-
-        # Generate stable hash from module + class
-        hash_input = f"{cls.__module__}.{cls.__name__}"
-        model_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:8]
-
-        # Create serializable parameter specs
-        param_specs = tuple(
-            SerializedParameterSpec.from_spec(spec)
-            for spec in space.specs
-        )
-
-        # Extract scenarios and outputs (sorted for stability)
-        scenarios = tuple(sorted(temp_instance._scenarios.keys()))
-        outputs = tuple(sorted(temp_instance._outputs.keys()))
-
-        # Create entry with import paths (not closures!)
-        entry = EntryRecord(
-            id=f"{cls.__module__}.{cls.__name__}@{model_hash}",
-            model_hash=model_hash,
-            abi_version=WireABI.V1,
-            module_name=cls.__module__,
-            class_name=cls.__name__,
-            scenarios=scenarios,
-            outputs=outputs,
-            param_specs=param_specs,
-            alias=getattr(cls, '__alias__', None),
-        )
-
-        # Register in global registry
-        REGISTRY.register(entry)
-
-        return entry

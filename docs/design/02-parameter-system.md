@@ -99,10 +99,11 @@ fn = compiled
 params["beta"] = 0.1                 # retroactively changes fn()
 ```
 
-**Correct (sealed & immutable)**:
+**Correct (stateless & immutable)**:
 ```python
-fn = model.compile_entrypoint()      # closes over sealed registries
-result = fn(dict(pset.values), seed) # params provided per call
+# Wire function created fresh from manifest data
+wire = make_wire_from_manifest(model_id, manifest)
+result = wire(params_M=dict(pset.values), seed=seed) # params provided per call
 ```
 
 ### 5. Typos Silently Use Wrong Defaults

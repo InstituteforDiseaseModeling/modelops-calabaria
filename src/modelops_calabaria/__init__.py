@@ -31,9 +31,13 @@ from .wire_protocol import (
     WireABI,
     SerializedParameterSpec,
     WireResponse,
-    EntryRecord,
-    ModelRegistry,
-    REGISTRY,
+)
+from .api import (
+    CalabariaCLI,
+    quick_discover,
+    quick_manifest,
+    quick_verify,
+    quick_bundle_id,
 )
 
 __version__ = "0.1.0"
@@ -64,7 +68,10 @@ __all__ = [
     "WireABI",
     "SerializedParameterSpec",
     "WireResponse",
-    "EntryRecord",
-    "ModelRegistry",
-    "REGISTRY",
+    # API
+    "CalabariaCLI",
+    "quick_discover",
+    "quick_manifest",
+    "quick_verify",
+    "quick_bundle_id",
 ]

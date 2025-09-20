@@ -112,7 +112,8 @@ result = variant.simulate(seed=42, beta=0.3, gamma=0.1)
 
 ```python
 # The SAME model wire function handles ALL variants
-wire = REGISTRY.get_wire("examples.sir.SIRModel@a1b2c3d4")
+# Created on-demand from manifest data
+wire = make_wire_from_manifest("examples.sir.SIRModel@a1b2c3d4", manifest)
 
 # Variant 1: Different fixed parameters
 response1 = wire(
@@ -237,18 +238,26 @@ class SIRModel(BaseModel):
 
     # ... implement dynamics ...
 
-# Step 2: Create bundle and register model (ONCE per code version)
+# Step 2: Create bundle and manifest (ONCE per code version)
 # Bundle captures exact code and dependencies, creates digest
 bundle = Bundle.from_model(SIRModel)  # Creates digest: "a1b2c3d4..."
 bundle.push()  # Uploads to cloud
 
-# Step 3: Register model with its bundle digest
-SIRModel.compile_entrypoint(
-    alias="SIR with Vaccination",
-    bundle_digest=bundle.digest  # Links model to exact code version
-)
+# Step 3: Create manifest entry with bundle digest
+# Manifest is the single source of truth for model metadata
+manifest = {
+    "models": {
+        "SIRModel@a1b2c3d4": {
+            "class": "examples.sir:SIRModel",
+            "model_digest": bundle.digest,
+            "param_specs": [...],  # Serialized parameter specifications
+            "scenarios": [...],    # Available scenarios
+            "outputs": [...]       # Available outputs
+        }
+    }
+}
 
-# Step 3: Infinite research variations (NO DEPLOYMENT)
+# Step 4: Infinite research variations (NO DEPLOYMENT)
 variant_A = VariantSpec(...)  # Studying urban dynamics
 variant_B = VariantSpec(...)  # Studying rural dynamics
 variant_C = VariantSpec(...)  # Studying vaccination strategies
@@ -260,11 +269,11 @@ variant_D = VariantSpec(...)  # Studying seasonal effects
 
 ```
 ┌──────────────────────────────────────┐
-│       ModelRegistry (Discovery)      │  ← Global registry
+│         Manifest (Discovery)         │  ← Single source of truth
 ├──────────────────────────────────────┤
 │          BaseModel (Logic)           │  ← Deployed once
 ├──────────────────────────────────────┤
-│      Wire Function (Interface)       │  ← Single entry point
+│      Wire Function (Interface)       │  ← Single entry point (stateless)
 ├──────────────────────────────────────┤
 │       VariantSpec (Configuration)    │  ← Infinite variations
 ├──────────────────────────────────────┤
@@ -272,54 +281,47 @@ variant_D = VariantSpec(...)  # Studying seasonal effects
 └──────────────────────────────────────┘
 ```
 
-## Model Registry: Enabling Discovery and Deployment
+## Stateless Wire Loader: Enabling Discovery and Deployment
 
-The `ModelRegistry` is the backbone that enables "One Model, Infinite Variants":
+The stateless wire loader enables "One Model, Infinite Variants" without global state:
 
-### Thread-Safe Registration
-
-```python
-# Register a model (happens once at deployment)
-class SIRModel(BaseModel):
-    # ... implementation ...
-    pass
-
-# Registration creates an EntryRecord with all metadata
-record = SIRModel.compile_entrypoint(alias="SIR with Vaccination")
-# Automatically registered in REGISTRY
-```
-
-### Discovery and Search
+### Manifest-Driven Discovery
 
 ```python
-# List all available models
-models = REGISTRY.list_models()
+# Manifest contains all model metadata
+manifest = {
+    "models": {
+        "examples.sir.SIRModel@a1b2c3d4": {
+            "class": "examples.sir:SIRModel",
+            "model_digest": "sha256:a1b2c3d4...",
+            "param_specs": [
+                {"name": "beta", "min": 0.0, "max": 1.0, "kind": "float"},
+                {"name": "gamma", "min": 0.0, "max": 1.0, "kind": "float"}
+            ],
+            "scenarios": ["baseline", "lockdown", "vaccination"],
+            "outputs": ["incidence", "prevalence", "summary"]
+        }
+    }
+}
 
-# ['examples.sir.SIRModel@a1b2c3d4', 'examples.seir.SEIRModel@5f6g7h8i']
-
-# Search for specific capabilities
-vaccination_models = REGISTRY.search(has_scenario="vaccination")
-epidemic_models = REGISTRY.search(module_pattern="*epidemic*")
-
-# Get model metadata
-entry = REGISTRY.get("examples.sir.SIRModel@a1b2c3d4")
-print(f"Scenarios: {entry.scenarios}")  # ['baseline', 'lockdown', 'vaccination']
-print(f"Outputs: {entry.outputs}")      # ['incidence', 'prevalence', 'summary']
+# Create wire function on-demand
+wire = make_wire_from_manifest("examples.sir.SIRModel@a1b2c3d4", manifest)
 ```
 
-### EntryRecord: Complete Model Interface
-Each registered model has an `EntryRecord` containing:
-- **Identity**: Unique ID with code hash (e.g., `SIRModel@a1b2c3d4`)
-- **ABI Version**: Wire protocol version for compatibility (e.g., `calabaria.wire.v1`)
+### EntryRecord: Pure Value Object
+Each model has an immutable `EntryRecord` containing:
+- **Identity**: Class path and model digest (e.g., `examples.sir:SIRModel`)
+- **ABI Version**: Wire protocol version for compatibility (e.g., `calabria.wire.v1`)
 - **Import Path**: Module and class names (no heavy closures)
 - **Discovery Info**: Available scenarios, outputs, parameter specs
-- **Wire Factory**: Creates wire functions on demand
+- **Stateless**: No global state or registry
 
 This design ensures:
-- **No heavy closures**: Wire functions created from import paths
+- **No global state**: Wire functions created from manifest data
 - **Full serialization**: Everything can be JSON-encoded for persistence
 - **Version safety**: ABI versioning allows protocol evolution
 - **Lazy loading**: Models imported only when needed
+- **Stateless execution**: Fresh model instances for each call
 
 ### Wire Protocol Hardening
 
@@ -347,39 +349,51 @@ The production wire protocol addresses critical issues:
 
 3. **Import Path Pattern (No Heavy Closures)**
    ```python
-   def get_wire_factory(self) -> Callable[[], WireFunction]:
-       """Returns factory that imports model on-demand."""
-       def factory():
-           module = importlib.import_module(self.module_name)
-           model_class = getattr(module, self.class_name)
-           return self._make_v1_wire(model_class)
-       return factory
-   ```
-   Models are imported lazily when wire functions are needed, not captured in closures.
+   def make_wire(entry: EntryRecord) -> Callable:
+       """Creates wire function from entry record."""
+       # Parse class path
+       module_name, class_name = entry.class_path.split(":")
 
-4. **Thread-Safe Global Registry**
+       def wire_v1(params_M, seed, scenario_stack=("baseline",), outputs=None):
+           # Import model fresh for each call (stateless)
+           module = importlib.import_module(module_name)
+           model_class = getattr(module, class_name)
+           # ... execute simulation ...
+       return wire_v1
+   ```
+   Models are imported fresh for each call, ensuring stateless execution.
+
+4. **Stateless Execution**
    ```python
-   class ModelRegistry:
-       def register(self, record: EntryRecord) -> None:
-           """Thread-safe registration with validation."""
-           # Validates wire can be created
-           # Checks for duplicates
-           # Thread-safe with locks
+   # No global registry - everything from manifest
+   entry = entry_from_manifest(model_id, manifest)
+   wire = make_wire(entry)
+   # Each call creates fresh model instance
    ```
 
-### Registry Persistence and Federation
+### Manifest Persistence and Federation
 
 ```python
-# Save registry for deployment
-registry_data = REGISTRY.to_json()
-with open("model_registry.json", "w") as f:
-    json.dump(registry_data, f, indent=2)
+# Manifest is already JSON-serializable
+manifest = {
+    "models": {
+        "examples.sir.SIRModel@a1b2c3d4": {
+            "class": "examples.sir:SIRModel",
+            "model_digest": "sha256:...",
+            # ... metadata ...
+        }
+    }
+}
 
-# Load in cloud environment
-REGISTRY.from_json(json.load(open("model_registry.json")))
+with open("model_manifest.json", "w") as f:
+    json.dump(manifest, f, indent=2)
 
-# Execute any registered model
-wire = REGISTRY.get_wire("examples.sir.SIRModel@a1b2c3d4")
+# Load in cloud environment - no global state needed
+with open("model_manifest.json") as f:
+    manifest = json.load(f)
+
+# Execute any model - created on-demand
+wire = make_wire_from_manifest("examples.sir.SIRModel@a1b2c3d4", manifest)
 response = wire(
     params_M={...},  # Always complete M-space
     seed=42,
@@ -473,10 +487,10 @@ This purity is what enables:
 
 ### Development Workflow
 1. **Model developer** writes and tests `BaseModel` locally
-2. **Model developer** deploys model once with `compile_entrypoint()`
+2. **Model developer** creates manifest entry with model metadata
 3. **Researchers** create unlimited variants without deployment
 4. **Researchers** share variants as configuration files
-5. **Cloud** executes any variant through the single wire
+5. **Cloud** creates wire functions on-demand and executes variants
 
 ### Optimization Workflow
 1. **Researcher** defines P-space with `VariantSpec`
@@ -562,25 +576,34 @@ class EpidemicModel(BaseModel):
         # Model dynamics
         pass
 
-# 2. Bundle and register (ONCE per code version)
+# 2. Bundle and create manifest (ONCE per code version)
 bundle = Bundle.from_model(EpidemicModel)
 bundle.push()  # Upload to cloud storage
 
-record = EpidemicModel.compile_entrypoint(
-    alias="COVID-19 Model v2.1",
-    bundle_digest=bundle.digest
-)
+# Create manifest entry
+manifest = {
+    "models": {
+        "EpidemicModel@abc123": {
+            "class": "epidemic.models:EpidemicModel",
+            "model_digest": bundle.digest,
+            "param_specs": [...],  # Model parameter specifications
+            "scenarios": [...],    # Available scenarios
+            "outputs": [...]       # Available outputs
+        }
+    }
+}
 
-# 3. Registry persists to cloud
-with open("registry.json", "w") as f:
-    json.dump(REGISTRY.to_json(), f)
+# 3. Manifest persists to cloud
+with open("manifest.json", "w") as f:
+    json.dump(manifest, f)
 # Upload to cloud storage/database
 
-# 4. Cloud execution environment loads registry
-REGISTRY.from_json(cloud_storage.get("registry.json"))
+# 4. Cloud execution creates wire functions on-demand
+with open("manifest.json") as f:
+    manifest = json.load(f)
 
 # 5. Any researcher can now use ANY variant
-wire = REGISTRY.get_wire("EpidemicModel@abc123")
+wire = make_wire_from_manifest("EpidemicModel@abc123", manifest)
 
 # Variant A: Urban dynamics
 response_a = wire(
@@ -610,14 +633,14 @@ The "One Model, Infinite Variants, One Wire Function" principle is not just an i
 3. **Perfect reproducibility** through pure functions and versioned bundles
 4. **Efficient caching** through canonical M-space representations
 5. **Seamless scaling** through stateless, serializable execution
-6. **Production safety** through thread-safe registries and ABI versioning
+6. **Production safety** through stateless execution and ABI versioning
 
 Every design decision should be evaluated against this principle: **Does it maintain the unity of the wire function while enabling variant flexibility?**
 
-The hardened wire protocol ensures this principle scales to production:
-- **No heavy closures** → Import paths and factories
+The stateless wire protocol ensures this principle scales to production:
+- **No heavy closures** → Import paths and on-demand creation
 - **Protocol evolution** → ABI versioning
-- **Thread safety** → Validated, locked registry
+- **No global state** → Manifest-driven, stateless execution
 - **Full persistence** → JSON serialization
 
 ## The Architecture Promise
@@ -635,7 +658,7 @@ The combination of:
 - Immutable parameter system
 - Pure wire functions
 - Content-addressed bundles
-- Thread-safe registry
+- Stateless execution
 - Versioned protocols
 
 Creates a system where **research flexibility meets production reliability**.

@@ -145,6 +145,25 @@ class ParameterSpace:
         """Number of parameters in space."""
         return len(self.specs)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Export parameter space as serializable dictionary.
+
+        Returns:
+            Dictionary with parameter specifications in JSON-serializable format
+        """
+        return {
+            "parameters": [
+                {
+                    "name": spec.name,
+                    "min": spec.min,
+                    "max": spec.max,
+                    "kind": spec.kind,
+                    "doc": spec.doc
+                }
+                for spec in self.specs
+            ]
+        }
+
 
 @dataclass(frozen=True)
 class ParameterSet:

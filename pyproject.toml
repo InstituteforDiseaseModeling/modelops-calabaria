@@ -4,24 +4,25 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "modelops-bundle",
-    "modelops-contracts",
-    "polars>=1.33.1",
-]
+
+dependencies = [ "modelops-bundle", "modelops-contracts", "polars>=1.33.1", "typer>=0.12.0", "toml>=0.10.0",]
 
 [build-system]
-requires = ["hatchling"]
+requires = [ "hatchling",]
 build-backend = "hatchling.build"
 
-[tool.uv.sources]
-modelops-contracts = { path = "../modelops-contracts" }
-modelops-bundle = { path = "../modelops-bundle" }
-
 [dependency-groups]
-dev = [
-    "black>=25.1.0",
-    "hypothesis>=6.139.1",
-    "pytest>=8.4.2",
-    "ruff>=0.13.0",
-]
+dev = [ "black>=25.1.0", "hypothesis>=6.139.1", "pytest>=8.4.2", "ruff>=0.13.0", "numpy>=1.24.0",]
+
+[project.scripts]
+cb = "modelops_calabaria.cli.__main__:cli_main"
+
+[tool.calabaria]
+schema = 1
+abi = "model-entrypoint@1"
+
+[tool.uv.sources.modelops-contracts]
+path = "../modelops-contracts"
+
+[tool.uv.sources.modelops-bundle]
+path = "../modelops-bundle"

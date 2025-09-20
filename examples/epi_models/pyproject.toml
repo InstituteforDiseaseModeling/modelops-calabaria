@@ -1,0 +1,31 @@
+[project]
+name = "epi-models-example"
+version = "0.1.0"
+description = "Example epidemiological models for ModelOps-Calabaria"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [ "modelops-calabaria", "polars>=1.33.1", "numpy>=1.24.0",]
+
+[build-system]
+requires = [ "hatchling",]
+build-backend = "hatchling.build"
+
+[tool.calabaria]
+schema = 1
+abi = "model-entrypoint@1"
+[[tool.calabaria.model]]
+class = "models.seir:StochasticSEIR"
+files = [ "src/models/seir.py", "src/models/__init__.py",]
+
+[[tool.calabaria.model]]
+class = "models.seir_age:AgeStratifiedSEIR"
+files = [ "src/models/seir_age.py", "src/models/__init__.py",]
+
+[tool.uv.sources.modelops-calabaria]
+path = "../.."
+
+[tool.uv.sources.modelops-contracts]
+path = "../../../modelops-contracts"
+
+[tool.uv.sources.modelops-bundle]
+path = "../../../modelops-bundle"

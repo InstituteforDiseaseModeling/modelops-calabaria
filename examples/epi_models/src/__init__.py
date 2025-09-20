@@ -1,0 +1,1 @@
+"""Example epidemiological models for testing ModelOps-Calabaria."""
