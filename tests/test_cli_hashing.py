@@ -99,8 +99,8 @@ class TestTokenHashing:
             hash1 = token_hash(bad_file)
             hash2 = token_hash(bad_file)
             assert hash1 == hash2
-            assert len(hash1) == 71  # "sha256:" + 64 hex chars
-            assert hash1.startswith("sha256:")
+            assert len(hash1) == 64  # 64 hex chars (BLAKE2b)
+            # BLAKE2b doesn't have prefix
 
 
 class TestContentHashing:
@@ -114,7 +114,7 @@ class TestContentHashing:
 
         assert hash1 == hash2
         assert hash1 != hash3
-        assert len(hash1) == 71  # "sha256:" + 64 hex chars
+        assert len(hash1) == 64  # 64 hex chars (BLAKE2b)
 
     def test_content_hash_dict(self):
         """Content hash should work for dictionary inputs."""
@@ -136,8 +136,8 @@ class TestCodeSig:
     def test_code_sig_empty(self):
         """Code signature should work with empty file list."""
         sig = code_sig([])
-        assert len(sig) == 71  # "sha256:" + 64 hex chars
-        assert sig.startswith("sha256:")
+        assert len(sig) == 64  # 64 hex chars (BLAKE2b)
+        # BLAKE2b doesn't have prefix
 
     def test_code_sig_deterministic(self):
         """Code signature should be deterministic."""
@@ -206,8 +206,8 @@ class TestSha256Bytes:
         data = b"hello world"
         hash_value = sha256_bytes(data)
 
-        assert len(hash_value) == 71  # "sha256:" + 64 hex chars
-        assert hash_value.startswith("sha256:")
+        assert len(hash_value) == 64  # 64 hex chars (BLAKE2b)
+        # BLAKE2b doesn't have prefix
 
     def test_sha256_bytes_deterministic(self):
         """SHA256 should be deterministic."""
@@ -258,8 +258,8 @@ class TestIntegration:
             hash2 = token_hash(py_file)
 
             assert hash1 == hash2
-            assert len(hash1) == 71  # "sha256:" + 64 hex chars
-            assert hash1.startswith("sha256:")
+            assert len(hash1) == 64  # 64 hex chars (BLAKE2b)
+            # BLAKE2b doesn't have prefix
 
     def test_code_sig_with_real_files(self):
         """Test code signature with multiple real files."""
@@ -280,8 +280,8 @@ class TestIntegration:
             ]
 
             sig = code_sig(records)
-            assert len(sig) == 71  # "sha256:" + 64 hex chars
-            assert sig.startswith("sha256:")
+            assert len(sig) == 64  # 64 hex chars (BLAKE2b)
+            # BLAKE2b doesn't have prefix
 
             # Should be reproducible
             sig2 = code_sig(records)

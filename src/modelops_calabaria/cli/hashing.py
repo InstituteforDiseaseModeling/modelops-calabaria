@@ -5,12 +5,20 @@ using tokenization to ignore formatting changes while preserving
 semantic content.
 """
 
-import hashlib
 import io
 import json
 import tokenize
 from pathlib import Path
 from typing import Iterable, Tuple, Any
+
+try:
+    from modelops_contracts import digest_bytes
+except ImportError:
+    # Fallback for when contracts isn't available
+    import hashlib
+    def digest_bytes(data: bytes) -> str:
+        """Compute BLAKE2b-256 hash of bytes."""
+        return hashlib.blake2b(data, digest_size=32).hexdigest()
 
 
 # Tokens to skip when hashing (formatting-only)
@@ -49,7 +57,7 @@ def token_hash(path: Path) -> str:
         src = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         # Fall back to binary hash if not valid UTF-8
-        return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+        return digest_bytes(path.read_bytes())
 
     tokens = []
     try:
@@ -65,11 +73,11 @@ def token_hash(path: Path) -> str:
 
     except tokenize.TokenError:
         # Fall back to source hash if tokenization fails
-        return f"sha256:{hashlib.sha256(src.encode('utf-8')).hexdigest()}"
+        return digest_bytes(src.encode('utf-8'))
 
     # Create deterministic JSON representation
     payload = canonical_json(tokens).encode('utf-8')
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    return digest_bytes(payload)
 
 
 def code_sig(file_records: Iterable[Tuple[str, str]]) -> str:
@@ -82,7 +90,7 @@ def code_sig(file_records: Iterable[Tuple[str, str]]) -> str:
         file_records: Iterable of (file_path, file_hash) pairs
 
     Returns:
-        Hash string in format "sha256:abcd1234..."
+        64-character hex hash string
 
     Example:
         >>> records = [
@@ -98,7 +106,7 @@ def code_sig(file_records: Iterable[Tuple[str, str]]) -> str:
     combined = "|".join(f"{path}::{hash_val}" for path, hash_val in sorted_records)
 
     # Hash the combination
-    return f"sha256:{hashlib.sha256(combined.encode('utf-8')).hexdigest()}"
+    return digest_bytes(combined.encode('utf-8'))
 
 
 def canonical_json(obj: Any) -> str:
@@ -124,25 +132,25 @@ def canonical_json(obj: Any) -> str:
 
 
 def sha256_bytes(data: bytes) -> str:
-    """Hash raw bytes.
+    """Hash raw bytes using BLAKE2b.
 
     Args:
         data: Raw bytes to hash
 
     Returns:
-        Hash in format "sha256:abcd1234..."
+        64-character hex hash string
     """
-    return f"sha256:{hashlib.sha256(data).hexdigest()}"
+    return digest_bytes(data)
 
 
 def sha256_string(text: str) -> str:
-    """Hash string content.
+    """Hash string content using BLAKE2b.
 
     Args:
         text: String to hash
 
     Returns:
-        Hash in format "sha256:abcd1234..."
+        64-character hex hash string
     """
     return sha256_bytes(text.encode('utf-8'))
 
@@ -154,6 +162,6 @@ def content_hash(content: Any) -> str:
         content: Content to hash (will be JSON-serialized)
 
     Returns:
-        Hash in format "sha256:abcd1234..."
+        64-character hex hash string
     """
     return sha256_string(canonical_json(content))

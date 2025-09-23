@@ -10,6 +10,9 @@ dependencies = [ "modelops-calabaria", "polars>=1.33.1", "numpy>=1.24.0",]
 requires = [ "hatchling",]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/models"]
+
 [tool.calabaria]
 schema = 1
 abi = "model-entrypoint@1"

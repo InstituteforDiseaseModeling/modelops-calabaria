@@ -27,8 +27,16 @@ class TestBuildModelMetadata:
         """Should build metadata for valid model."""
         # Mock the model class and instance
         mock_space = MagicMock()
-        mock_space.specs = []
-        mock_space.to_dict.return_value = {"parameters": []}
+        # Need at least one parameter spec
+        mock_param_spec = MagicMock()
+        mock_param_spec.name = "test_param"
+        mock_param_spec.kind = "float"
+        mock_param_spec.min = 0.0
+        mock_param_spec.max = 1.0
+        mock_param_spec.doc = "Test parameter"
+        mock_param_spec.to_dict.return_value = {"name": "test_param", "kind": "float", "min": 0, "max": 1}
+        mock_space.specs = [mock_param_spec]
+        mock_space.to_dict.return_value = {"parameters": ["test_param"]}
 
         mock_instance = MagicMock()
         mock_instance._scenarios = {"baseline": MagicMock(), "lockdown": MagicMock()}
@@ -198,7 +206,7 @@ class TestComputeModelDigest:
         digest2 = compute_model_digest(model_metadata, "abi@1", ">=3.11", "lock_hash")
 
         assert digest1 == digest2
-        assert len(digest1) == 71  # "sha256:" + 64 hex chars
+        assert len(digest1) == 64  # 64 hex chars (BLAKE2b)
 
     def test_compute_digest_different_inputs(self):
         """Should produce different digests for different inputs."""
@@ -272,7 +280,7 @@ class TestBuildManifest:
                     "space_sig": "spacesig",
                     "scenarios": ["baseline"],
                     "outputs": ["result"],
-                    "param_specs": []
+                    "param_specs": [{"name": "test_param", "kind": "float", "min": 0, "max": 1}]
                 }
 
                 import os
@@ -296,7 +304,7 @@ class TestBuildManifest:
                 assert "model_digest" in model
 
                 # Bundle ID should be deterministic
-                assert len(bundle_id) == 71  # "sha256:" + 64 hex chars
+                assert len(bundle_id) == 64  # 64 hex chars (BLAKE2b)
 
     def test_build_manifest_no_pyproject(self):
         """Should handle missing pyproject.toml."""
@@ -349,11 +357,13 @@ class TestBuildManifest:
                  patch('modelops_calabaria.cli.config.resolve_file_patterns', return_value=[]), \
                  patch('modelops_calabaria.cli.manifest.build_model_metadata', return_value={
                      "class": "test:Test", "files": [], "code_sig": "sig", "space_sig": "sig2",
-                     "scenarios": [], "outputs": [], "param_specs": []
+                     "scenarios": ["baseline"], "outputs": ["output1"],
+                     "param_specs": [{"name": "param1", "kind": "float", "min": 0, "max": 1}]
                  }):
 
                 mock_read.return_value = {
-                    "schema": 1, "abi": "test@1", "model": []
+                    "schema": 1, "abi": "test@1",
+                    "model": [{"class": "test:Test", "files": ["test.py"]}]
                 }
 
                 import os
@@ -609,7 +619,7 @@ class TestIntegration:
                     assert manifest["abi"] == "model-entrypoint@1"
                     assert manifest["requires_python"] == ">=3.11"
                     assert manifest["bundle_id"] == bundle_id
-                    assert len(bundle_id) == 71  # "sha256:" + 64 hex chars
+                    assert len(bundle_id) == 64  # 64 hex chars (BLAKE2b)
 
                     # Verify model entry
                     assert "src.sir:SIRModel" in manifest["models"]

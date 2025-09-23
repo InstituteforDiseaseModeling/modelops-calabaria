@@ -39,6 +39,11 @@ from .api import (
     quick_verify,
     quick_bundle_id,
 )
+from .sampling import (
+    SamplingStrategy,
+    GridSampler,
+    SobolSampler,
+)
 
 __version__ = "0.1.0"
 
@@ -74,4 +79,8 @@ __all__ = [
     "quick_manifest",
     "quick_verify",
     "quick_bundle_id",
+    # Sampling strategies
+    "SamplingStrategy",
+    "GridSampler",
+    "SobolSampler",
 ]

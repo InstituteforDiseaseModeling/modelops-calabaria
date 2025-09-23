@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import logging
 
+from modelops_contracts import BundleManifest, ModelEntry
+
 from . import config
 from . import hashing
 
@@ -115,7 +117,7 @@ def compute_model_digest(model_metadata: Dict[str, Any],
         uv_lock_sha: Hash of uv.lock file
 
     Returns:
-        Model digest string
+        Model digest string (64-char hex)
     """
     # Combine all components that affect model behavior
     digest_components = [
@@ -128,6 +130,42 @@ def compute_model_digest(model_metadata: Dict[str, Any],
 
     digest_payload = "|".join(digest_components)
     return hashing.content_hash(digest_payload)
+
+
+def build_contracts_manifest(config_data: Dict[str, Any],
+                            models_metadata: Dict[str, Dict[str, Any]],
+                            bundle_id: str) -> BundleManifest:
+    """Build a contracts-compliant BundleManifest.
+
+    Args:
+        config_data: Configuration from pyproject.toml
+        models_metadata: Metadata for each model
+        bundle_id: Bundle digest
+
+    Returns:
+        BundleManifest instance
+    """
+    models = {}
+    for class_path, metadata in models_metadata.items():
+        # Extract just the parameter names
+        param_names = [spec["name"] for spec in metadata["param_specs"]]
+
+        # Create ModelEntry
+        model_entry = ModelEntry(
+            entrypoint_base=class_path.replace(":", "."),
+            scenarios=metadata["scenarios"],
+            outputs=metadata["outputs"],
+            parameters=param_names,
+            model_digest=metadata["model_digest"].replace("sha256:", "") if "sha256:" in metadata["model_digest"] else metadata["model_digest"]
+        )
+        models[class_path] = model_entry
+
+    return BundleManifest(
+        bundle_ref=config_data.get("bundle_ref", "local://dev"),
+        bundle_digest=bundle_id,
+        models=models,
+        version=1
+    )
 
 
 def build_manifest(check_only: bool = False) -> Tuple[Dict[str, Any], str]:
@@ -168,7 +206,7 @@ def build_manifest(check_only: bool = False) -> Tuple[Dict[str, Any], str]:
     models_config = configuration.get("model", [])
 
     # Get uv.lock hash
-    uv_lock_sha = config.get_uv_lock_hash() or "sha256:0000000000000000"
+    uv_lock_sha = config.get_uv_lock_hash() or "0000000000000000000000000000000000000000000000000000000000000000"
 
     # Build metadata for each model
     models = {}
@@ -199,7 +237,7 @@ def build_manifest(check_only: bool = False) -> Tuple[Dict[str, Any], str]:
             logger.error(f"Failed to build metadata for {class_path}: {e}")
             raise
 
-    # Build complete manifest
+    # Build complete manifest (legacy format for backward compat)
     manifest = {
         "schema": 1,
         "builder": {"name": "calabaria-cli", "version": "0.1.0"},
@@ -216,6 +254,26 @@ def build_manifest(check_only: bool = False) -> Tuple[Dict[str, Any], str]:
     )
     bundle_id = hashing.content_hash(bundle_payload)
     manifest["bundle_id"] = bundle_id
+
+    # Also create contracts-compliant manifest
+    contracts_manifest = build_contracts_manifest(configuration, models, bundle_id)
+
+    # Store contracts manifest in the legacy manifest for future use
+    manifest["_contracts_manifest"] = {
+        "bundle_ref": contracts_manifest.bundle_ref,
+        "bundle_digest": contracts_manifest.bundle_digest,
+        "models": {
+            k: {
+                "entrypoint_base": v.entrypoint_base,
+                "scenarios": v.scenarios,
+                "outputs": v.outputs,
+                "parameters": v.parameters,
+                "model_digest": v.model_digest
+            }
+            for k, v in contracts_manifest.models.items()
+        },
+        "version": contracts_manifest.version
+    }
 
     # Write manifest unless check_only
     if not check_only:

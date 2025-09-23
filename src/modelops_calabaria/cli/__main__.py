@@ -14,6 +14,7 @@ from .discover import discover_models, suggest_model_config
 from .config import write_model_config, read_pyproject, validate_config
 from .verify import verify_all_models, print_verification_summary
 from .manifest import build_manifest, check_manifest_drift, print_manifest_summary
+from .sampling import sobol_command, grid_command
 
 # Create the main app
 app = typer.Typer(
@@ -25,9 +26,11 @@ app = typer.Typer(
 # Create subcommands
 models_app = typer.Typer(help="Model discovery and export commands")
 manifest_app = typer.Typer(help="Manifest generation commands", invoke_without_command=True)
+sampling_app = typer.Typer(help="Generate simulation jobs from parameter sampling")
 
 app.add_typer(models_app, name="models")
 app.add_typer(manifest_app, name="manifest")
+app.add_typer(sampling_app, name="sampling")
 
 
 @models_app.command("discover")
@@ -222,6 +225,33 @@ def manifest_check():
     except Exception as e:
         typer.echo(f"Error checking manifest: {e}", err=True)
         raise typer.Exit(1)
+
+
+@sampling_app.command("sobol")
+def sampling_sobol(
+    model_class: str = typer.Argument(..., help="Model class from manifest"),
+    scenario: str = typer.Option("baseline", "--scenario", "-s"),
+    n_samples: int = typer.Option(100, "--n-samples", "-n"),
+    bundle_ref: str = typer.Option(..., "--bundle-ref", "-b"),
+    output: str = typer.Option("job.json", "--output", "-o"),
+    seed: Optional[int] = typer.Option(42, "--seed"),
+    scramble: bool = typer.Option(True, "--scramble/--no-scramble"),
+):
+    """Generate SimJob using Sobol sampling."""
+    sobol_command(model_class, scenario, n_samples, bundle_ref, output, seed, scramble)
+
+
+@sampling_app.command("grid")
+def sampling_grid(
+    model_class: str = typer.Argument(..., help="Model class from manifest"),
+    scenario: str = typer.Option("baseline", "--scenario", "-s"),
+    grid_points: int = typer.Option(10, "--grid-points", "-g"),
+    bundle_ref: str = typer.Option(..., "--bundle-ref", "-b"),
+    output: str = typer.Option("job.json", "--output", "-o"),
+    seed: Optional[int] = typer.Option(42, "--seed"),
+):
+    """Generate SimJob using Grid sampling."""
+    grid_command(model_class, scenario, grid_points, bundle_ref, output, seed)
 
 
 @app.command("version")
