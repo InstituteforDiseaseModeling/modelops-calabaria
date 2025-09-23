@@ -200,7 +200,7 @@ class TestScenarioComposition:
         )
 
         new_params, new_config, sources = compose_scenarios(
-            [spec], base_params, {}, detect_conflicts=True
+            [spec], base_params, {}
         )
 
         assert new_params["contact_rate"] == 2.0
@@ -218,7 +218,7 @@ class TestScenarioComposition:
         )
 
         new_params, new_config, sources = compose_scenarios(
-            [spec1, spec2], base_params, {}, detect_conflicts=True
+            [spec1, spec2], base_params, {}
         )
 
         # Last write wins for beta

@@ -36,7 +36,7 @@ def token_hash(path: Path) -> str:
         path: Path to Python file to hash
 
     Returns:
-        64-character hex hash string
+        Hash string in format "sha256:abcd1234..."
 
     Example:
         >>> path = Path("model.py")
@@ -65,11 +65,11 @@ def token_hash(path: Path) -> str:
 
     except tokenize.TokenError:
         # Fall back to source hash if tokenization fails
-        return hashlib.sha256(src.encode('utf-8')).hexdigest()
+        return f"sha256:{hashlib.sha256(src.encode('utf-8')).hexdigest()}"
 
     # Create deterministic JSON representation
     payload = canonical_json(tokens).encode('utf-8')
-    return hashlib.sha256(payload).hexdigest()
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
 def code_sig(file_records: Iterable[Tuple[str, str]]) -> str:
@@ -82,7 +82,7 @@ def code_sig(file_records: Iterable[Tuple[str, str]]) -> str:
         file_records: Iterable of (file_path, file_hash) pairs
 
     Returns:
-        64-character hex hash string
+        Hash string in format "sha256:abcd1234..."
 
     Example:
         >>> records = [
@@ -98,7 +98,7 @@ def code_sig(file_records: Iterable[Tuple[str, str]]) -> str:
     combined = "|".join(f"{path}::{hash_val}" for path, hash_val in sorted_records)
 
     # Hash the combination
-    return hashlib.sha256(combined.encode('utf-8')).hexdigest()
+    return f"sha256:{hashlib.sha256(combined.encode('utf-8')).hexdigest()}"
 
 
 def canonical_json(obj: Any) -> str:

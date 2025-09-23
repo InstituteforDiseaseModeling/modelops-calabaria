@@ -43,6 +43,23 @@ def model_output(name: str, metadata: Optional[Dict[str, Any]] = None):
                 f"not static/classmethod"
             )
 
+        # Validate method signature
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+
+        # Should have exactly 3 parameters: self, raw, seed
+        if len(params) != 3:
+            raise TypeError(
+                f"@model_output '{name}' method '{func.__name__}' must have "
+                f"signature (self, raw, seed), got {len(params)} parameters: {params}"
+            )
+
+        if params[0] != 'self':
+            raise TypeError(
+                f"@model_output '{name}' method '{func.__name__}' first parameter "
+                f"must be 'self', got '{params[0]}'"
+            )
+
         # Mark the function
         func._is_model_output = True
         func._output_name = name
@@ -82,6 +99,23 @@ def model_scenario(name: str):
             raise TypeError(
                 f"@model_scenario '{name}' must be an instance method, "
                 f"not static/classmethod"
+            )
+
+        # Validate method signature
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+
+        # Should have exactly 1 parameter: self
+        if len(params) != 1:
+            raise TypeError(
+                f"@model_scenario '{name}' method '{func.__name__}' must have "
+                f"signature (self), got {len(params)} parameters: {params}"
+            )
+
+        if params[0] != 'self':
+            raise TypeError(
+                f"@model_scenario '{name}' method '{func.__name__}' first parameter "
+                f"must be 'self', got '{params[0]}'"
             )
 
         def wrapper(self):

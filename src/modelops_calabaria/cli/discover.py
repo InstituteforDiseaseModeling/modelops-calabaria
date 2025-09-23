@@ -39,23 +39,66 @@ class ModelDiscoveryVisitor(ast.NodeVisitor):
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Check if class inherits from BaseModel."""
-        # Check all base classes
+        # Extract base class names for analysis
+        base_class_names = []
         for base in node.bases:
-            if self._is_base_model(base):
-                # Found a BaseModel subclass
-                model_info = {
-                    "class_name": node.name,
-                    "module_path": self.module_path,
-                    "full_path": f"{self.module_path}:{node.name}",
-                    "file_path": str(self.file_path) if self.file_path else self.module_path.replace('.', '/') + '.py',
-                    "line_number": node.lineno,
-                    "decorators": self._extract_decorators(node),
-                    "methods": self._extract_methods(node)
-                }
-                self.models.append(model_info)
-                break
+            base_name = self._get_base_name(base)
+            if base_name:
+                base_class_names.append(base_name)
+
+        # Check if any base class is BaseModel or likely BaseModel
+        is_model_class = any(self._is_base_model(base) for base in node.bases)
+
+        # Also check if it's likely a model class based on naming patterns
+        if not is_model_class:
+            is_model_class = self._is_likely_model_class(node.name, base_class_names)
+
+        if is_model_class:
+            # Found a BaseModel subclass
+            model_info = {
+                "class_name": node.name,
+                "module_path": self.module_path,
+                "full_path": f"{self.module_path}:{node.name}",
+                "file_path": str(self.file_path) if self.file_path else self.module_path.replace('.', '/') + '.py',
+                "line_number": node.lineno,
+                "base_classes": base_class_names,
+                "decorators": self._extract_decorators(node),
+                "methods": self._extract_methods(node)
+            }
+            self.models.append(model_info)
 
         self.generic_visit(node)
+
+    def _get_base_name(self, base: ast.AST) -> Optional[str]:
+        """Extract the name of a base class."""
+        if isinstance(base, ast.Name):
+            return base.id
+        elif isinstance(base, ast.Attribute):
+            return self._get_attribute_name(base)
+        return None
+
+    def _is_likely_model_class(self, class_name: str, base_classes: List[str]) -> bool:
+        """Check if class is likely a model based on naming patterns."""
+        class_lower = class_name.lower()
+
+        # Check class name patterns
+        if "model" in class_lower and any(pattern in class_lower for pattern in [
+            "sir", "seir", "compartment", "epidemi", "simulation", "dynamic"
+        ]):
+            return True
+
+        # Check if it inherits from classes that sound like models
+        for base in base_classes:
+            if base and (
+                "model" in base.lower() or
+                "base" in base.lower() or
+                any(pattern in base.lower() for pattern in [
+                    "simulation", "epidemi", "compartment", "dynamic"
+                ])
+            ):
+                return True
+
+        return False
 
     def _is_base_model(self, base: ast.AST) -> bool:
         """Check if a base class reference is BaseModel."""
@@ -63,32 +106,51 @@ class ModelDiscoveryVisitor(ast.NodeVisitor):
         if isinstance(base, ast.Name):
             name_used = base.id
 
+            # Direct name match (common case: "class MyModel(BaseModel):")
+            if name_used == "BaseModel":
+                return True
+
             # Check if this name was imported from a module containing BaseModel
             if name_used in self.from_imports:
-                # Get the module this name came from
                 module = self.from_imports[name_used]
-                # Check if it's likely a BaseModel import based on common module patterns
-                return ("base_model" in module.lower() or
-                        "basemodel" in module.lower() or
-                        module.endswith(".base_model") or
-                        module == "modelops_calabaria")
+                # More comprehensive module pattern matching
+                return self._is_basemodel_module(module)
 
             # Check if it was imported as a full module import
             if name_used in self.imports:
                 module = self.imports[name_used]
-                return ("base_model" in module.lower() or
-                        "basemodel" in module.lower() or
-                        module == "modelops_calabaria")
+                return self._is_basemodel_module(module)
 
-        # Handle attribute access: package.BaseModel
+        # Handle attribute access: package.BaseModel or module.BaseModel
         elif isinstance(base, ast.Attribute):
             if base.attr == "BaseModel":
-                # Check if the module was imported
                 if isinstance(base.value, ast.Name):
                     module_name = base.value.id
-                    return module_name in self.imports
+                    # Check if module was imported and likely contains BaseModel
+                    if module_name in self.imports:
+                        return self._is_basemodel_module(self.imports[module_name])
+                    return True  # Assume valid if we can't verify
+                elif isinstance(base.value, ast.Attribute):
+                    # Handle nested attributes like "package.module.BaseModel"
+                    return True  # Assume valid for now
 
         return False
+
+    def _is_basemodel_module(self, module: str) -> bool:
+        """Check if a module likely contains BaseModel."""
+        module_lower = module.lower()
+        return (
+            "base_model" in module_lower or
+            "basemodel" in module_lower or
+            module.endswith(".base_model") or
+            module.endswith(".BaseModel") or
+            module == "modelops_calabaria" or
+            module.startswith("modelops_calabaria.") or
+            # Common patterns in scientific computing
+            "model" in module_lower and any(pattern in module_lower for pattern in [
+                "core", "base", "abstract", "framework"
+            ])
+        )
 
     def _extract_decorators(self, node: ast.ClassDef) -> List[str]:
         """Extract decorator names from class."""
@@ -110,22 +172,46 @@ class ModelDiscoveryVisitor(ast.NodeVisitor):
 
         for item in node.body:
             if isinstance(item, ast.FunctionDef):
-                method_decorators = []
-                for dec in item.decorator_list:
-                    if isinstance(dec, ast.Name):
-                        method_decorators.append(dec.id)
-                    elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name):
-                        method_decorators.append(dec.func.id)
+                method_decorators = self._extract_method_decorators(item)
 
-                # Categorize method based on decorators
-                if "model_output" in method_decorators:
+                # Categorize method based on decorators (more flexible matching)
+                if any(self._is_output_decorator(dec) for dec in method_decorators):
                     methods["model_outputs"].append(item.name)
-                elif "model_scenario" in method_decorators:
+                elif any(self._is_scenario_decorator(dec) for dec in method_decorators):
                     methods["model_scenarios"].append(item.name)
                 else:
                     methods["other_methods"].append(item.name)
 
         return methods
+
+    def _extract_method_decorators(self, func_node: ast.FunctionDef) -> List[str]:
+        """Extract decorator names from method, handling various patterns."""
+        decorators = []
+        for dec in func_node.decorator_list:
+            if isinstance(dec, ast.Name):
+                decorators.append(dec.id)
+            elif isinstance(dec, ast.Call):
+                if isinstance(dec.func, ast.Name):
+                    decorators.append(dec.func.id)
+                elif isinstance(dec.func, ast.Attribute):
+                    decorators.append(self._get_attribute_name(dec.func))
+            elif isinstance(dec, ast.Attribute):
+                decorators.append(self._get_attribute_name(dec))
+        return decorators
+
+    def _is_output_decorator(self, decorator_name: str) -> bool:
+        """Check if decorator indicates a model output method."""
+        return (
+            "output" in decorator_name.lower() or
+            decorator_name in ["model_output", "output", "result", "metric"]
+        )
+
+    def _is_scenario_decorator(self, decorator_name: str) -> bool:
+        """Check if decorator indicates a model scenario method."""
+        return (
+            "scenario" in decorator_name.lower() or
+            decorator_name in ["model_scenario", "scenario", "variant", "case"]
+        )
 
     def _get_attribute_name(self, attr: ast.Attribute) -> str:
         """Get full attribute name like 'module.attr'."""

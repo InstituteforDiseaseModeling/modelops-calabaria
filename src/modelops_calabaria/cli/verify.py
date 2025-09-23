@@ -5,6 +5,7 @@ using subprocess isolation to track imports accurately.
 """
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -116,13 +117,23 @@ except Exception as e:
 """
 
     # Run the verification script in a subprocess
-    # This gives us a clean Python environment
+    # This gives us a clean, isolated Python environment
     try:
+        # Restricted environment for security while preserving essential paths
+        restricted_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+            "PYTHONNOUSERSITE": "1",
+            "CALABARIA_VERIFY": "1"
+        }
+
         result = subprocess.run(
             [sys.executable, "-c", verification_script],
             capture_output=True,
             text=True,
-            timeout=30  # Prevent hanging on bad imports
+            timeout=30,  # Prevent hanging on bad imports
+            env=restricted_env,
+            cwd=str(pathlib.Path.cwd())  # Preserve working directory
         )
     except subprocess.TimeoutExpired:
         return {

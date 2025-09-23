@@ -10,7 +10,7 @@ For stateless wire function creation, see wire_loader.py.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import io
 
 import polars as pl
@@ -44,8 +44,8 @@ class SerializedParameterSpec:
     and contains no callable transforms or complex types.
     """
     name: str
-    min: float
-    max: float
+    min: Union[int, float]
+    max: Union[int, float]
     kind: str  # "float" or "int"
     doc: str = ""
 
@@ -69,10 +69,18 @@ class SerializedParameterSpec:
     @classmethod
     def from_spec(cls, spec: ParameterSpec) -> 'SerializedParameterSpec':
         """Convert from regular ParameterSpec."""
+        # Preserve integer precision for int parameters
+        if spec.kind == "int":
+            min_val = int(spec.min)
+            max_val = int(spec.max)
+        else:
+            min_val = float(spec.min)
+            max_val = float(spec.max)
+
         return cls(
             name=spec.name,
-            min=float(spec.min),
-            max=float(spec.max),
+            min=min_val,
+            max=max_val,
             kind=spec.kind,
             doc=spec.doc
         )

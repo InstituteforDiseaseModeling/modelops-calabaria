@@ -124,19 +124,18 @@ class ScenarioSpec:
 def compose_scenarios(
     scenarios: List[ScenarioSpec],
     params: ParameterSet,
-    config: Mapping,
-    detect_conflicts: bool = False
+    config: Mapping
 ) -> Tuple[ParameterSet, Mapping, Dict[str, str]]:
     """Apply multiple scenarios in order with conflict detection.
 
     Scenarios are applied sequentially with last-write-wins semantics
-    by default. Optionally detects conflicts between scenarios.
+    by default. Individual scenarios can use conflict_policy="strict"
+    to enforce conflict detection.
 
     Args:
         scenarios: Ordered list of scenarios to apply
         params: Base parameter set
         config: Base configuration
-        detect_conflicts: If True, track parameter conflicts
 
     Returns:
         Tuple of (final_params, final_config, param_sources)
@@ -174,6 +173,19 @@ def compose_scenarios(
     return current_params, current_config, param_sources
 
 
+def _freeze_jsonable(obj):
+    """Convert arbitrary objects to deterministically serializable form."""
+    if isinstance(obj, dict):
+        return {k: _freeze_jsonable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_freeze_jsonable(item) for item in obj]
+    elif hasattr(obj, 'isoformat'):  # datetime-like objects
+        return obj.isoformat()
+    else:
+        # For other objects, convert to string but ensure consistency
+        return str(obj)
+
+
 def scenario_hash(spec: ScenarioSpec) -> str:
     """Generate deterministic hash for a scenario.
 
@@ -185,18 +197,18 @@ def scenario_hash(spec: ScenarioSpec) -> str:
     Returns:
         Hex string hash of scenario content
     """
-    import hashlib
-    import json
+    from .cli.hashing import content_hash
 
     # Create deterministic representation
     content = {
         "name": spec.name,
         "param_patches": {k: v for k, v in sorted(spec.param_patches.items())},
-        "config_patches": {k: str(v) for k, v in sorted(spec.config_patches.items())},
+        "config_patches": _freeze_jsonable({k: v for k, v in sorted(spec.config_patches.items())}),
         "conflict_policy": spec.conflict_policy,
         "allow_overlap": sorted(spec.allow_overlap) if spec.allow_overlap else None,
     }
 
-    # Hash the JSON representation
-    json_str = json.dumps(content, sort_keys=True)
-    return hashlib.sha256(json_str.encode()).hexdigest()[:16]
+    # Use canonical JSON hashing
+    full_hash = content_hash(content)
+    # Extract hex part after "sha256:" prefix and take first 16 characters
+    return full_hash.split(":")[-1][:16]

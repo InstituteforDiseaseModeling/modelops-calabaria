@@ -99,7 +99,8 @@ class TestTokenHashing:
             hash1 = token_hash(bad_file)
             hash2 = token_hash(bad_file)
             assert hash1 == hash2
-            assert len(hash1) == 64  # Plain hex without prefix
+            assert len(hash1) == 71  # "sha256:" + 64 hex chars
+            assert hash1.startswith("sha256:")
 
 
 class TestContentHashing:
@@ -135,7 +136,8 @@ class TestCodeSig:
     def test_code_sig_empty(self):
         """Code signature should work with empty file list."""
         sig = code_sig([])
-        assert len(sig) == 64  # SHA256 hex length
+        assert len(sig) == 71  # "sha256:" + 64 hex chars
+        assert sig.startswith("sha256:")
 
     def test_code_sig_deterministic(self):
         """Code signature should be deterministic."""
@@ -256,7 +258,8 @@ class TestIntegration:
             hash2 = token_hash(py_file)
 
             assert hash1 == hash2
-            assert len(hash1) == 64
+            assert len(hash1) == 71  # "sha256:" + 64 hex chars
+            assert hash1.startswith("sha256:")
 
     def test_code_sig_with_real_files(self):
         """Test code signature with multiple real files."""
@@ -277,7 +280,8 @@ class TestIntegration:
             ]
 
             sig = code_sig(records)
-            assert len(sig) == 64
+            assert len(sig) == 71  # "sha256:" + 64 hex chars
+            assert sig.startswith("sha256:")
 
             # Should be reproducible
             sig2 = code_sig(records)
