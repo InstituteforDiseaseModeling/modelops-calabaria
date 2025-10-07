@@ -13,7 +13,7 @@ import typer
 from .discover import discover_models, suggest_model_config
 from .config import write_model_config, read_pyproject, validate_config
 from .verify import verify_all_models, print_verification_summary
-from .manifest import build_manifest, check_manifest_drift, print_manifest_summary
+# Manifest functionality deprecated - use modelops-bundle register-model instead
 from .sampling import sobol_command, grid_command
 
 # Create the main app
@@ -25,11 +25,11 @@ app = typer.Typer(
 
 # Create subcommands
 models_app = typer.Typer(help="Model discovery and export commands")
-manifest_app = typer.Typer(help="Manifest generation commands", invoke_without_command=True)
+# manifest_app deprecated - use modelops-bundle register-model instead
 sampling_app = typer.Typer(help="Generate simulation jobs from parameter sampling")
 
 app.add_typer(models_app, name="models")
-app.add_typer(manifest_app, name="manifest")
+# app.add_typer(manifest_app, name="manifest") # Deprecated
 app.add_typer(sampling_app, name="sampling")
 
 
@@ -100,7 +100,7 @@ def models_export(
 
         typer.echo(f"\nNext steps:")
         typer.echo(f"  1. cb models verify    # Check import boundaries")
-        typer.echo(f"  2. cb manifest build   # Generate manifest.json")
+        typer.echo(f"  2. modelops-bundle register-model <file> # Register model with bundle")
 
     except Exception as e:
         typer.echo(f"Error writing configuration: {e}", err=True)
@@ -169,62 +169,9 @@ def models_verify(
         raise typer.Exit(1)
 
 
-@manifest_app.callback(invoke_without_command=True)
-def manifest_main(
-    ctx: typer.Context,
-    check: bool = typer.Option(False, "--check", help="Check if manifest is up to date"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output")
-):
-    """Build manifest.json deterministically."""
-    if verbose:
-        logging.basicConfig(level=logging.INFO)
-
-    # If no subcommand, default to build
-    if ctx.invoked_subcommand is None:
-        if check:
-            manifest_check()
-        else:
-            manifest_build()
-
-
-@manifest_app.command("build")
-def manifest_build(
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output")
-):
-    """Build manifest.json from pyproject.toml configuration."""
-    if verbose:
-        logging.basicConfig(level=logging.INFO)
-
-    try:
-        manifest, bundle_id = build_manifest()
-
-        typer.echo(f"Generated manifest.json")
-        typer.echo(f"Bundle ID: {bundle_id}")
-
-        if verbose:
-            print_manifest_summary(manifest)
-
-    except Exception as e:
-        typer.echo(f"Error building manifest: {e}", err=True)
-        raise typer.Exit(1)
-
-
-@manifest_app.command("check")
-def manifest_check():
-    """Check if manifest.json is up to date (exit 1 if outdated)."""
-    try:
-        up_to_date = check_manifest_drift()
-
-        if up_to_date:
-            typer.echo("✓ manifest.json is up to date")
-        else:
-            typer.echo("✗ manifest.json is out of date", err=True)
-            typer.echo("Run: cb manifest build", err=True)
-            raise typer.Exit(1)
-
-    except Exception as e:
-        typer.echo(f"Error checking manifest: {e}", err=True)
-        raise typer.Exit(1)
+# Manifest commands removed - use modelops-bundle register-model instead
+# The manifest.json approach is deprecated in favor of dynamic model discovery
+# and modelops-bundle's registry system for provenance tracking
 
 
 @sampling_app.command("sobol")
@@ -232,13 +179,12 @@ def sampling_sobol(
     model_class: str = typer.Argument(..., help="Model class from manifest"),
     scenario: str = typer.Option("baseline", "--scenario", "-s"),
     n_samples: int = typer.Option(100, "--n-samples", "-n"),
-    bundle_ref: str = typer.Option(..., "--bundle-ref", "-b"),
-    output: str = typer.Option("job.json", "--output", "-o"),
+    output: str = typer.Option("study.json", "--output", "-o"),
     seed: Optional[int] = typer.Option(42, "--seed"),
     scramble: bool = typer.Option(True, "--scramble/--no-scramble"),
 ):
-    """Generate SimJob using Sobol sampling."""
-    sobol_command(model_class, scenario, n_samples, bundle_ref, output, seed, scramble)
+    """Generate SimulationStudy using Sobol sampling."""
+    sobol_command(model_class, scenario, n_samples, output, seed, scramble)
 
 
 @sampling_app.command("grid")
@@ -246,12 +192,11 @@ def sampling_grid(
     model_class: str = typer.Argument(..., help="Model class from manifest"),
     scenario: str = typer.Option("baseline", "--scenario", "-s"),
     grid_points: int = typer.Option(10, "--grid-points", "-g"),
-    bundle_ref: str = typer.Option(..., "--bundle-ref", "-b"),
-    output: str = typer.Option("job.json", "--output", "-o"),
+    output: str = typer.Option("study.json", "--output", "-o"),
     seed: Optional[int] = typer.Option(42, "--seed"),
 ):
-    """Generate SimJob using Grid sampling."""
-    grid_command(model_class, scenario, grid_points, bundle_ref, output, seed)
+    """Generate SimulationStudy using Grid sampling."""
+    grid_command(model_class, scenario, grid_points, output, seed)
 
 
 @app.command("version")

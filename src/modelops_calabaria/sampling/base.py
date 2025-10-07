@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 import uuid
 
-from modelops_contracts import SimTask, SimBatch, format_entrypoint
+from modelops_contracts import SimTask, format_entrypoint
 
 from ..parameters import ParameterSpace
 
@@ -52,7 +52,7 @@ class SamplingStrategy(ABC):
         base_seed: int = 42,
         outputs: Optional[List[str]] = None,
         config: Optional[Dict[str, Any]] = None,
-    ) -> SimBatch:
+    ) -> List[SimTask]:
         """Generate simulation tasks from parameter samples.
 
         Args:
@@ -65,7 +65,7 @@ class SamplingStrategy(ABC):
             config: Optional runtime configuration
 
         Returns:
-            SimBatch containing all generated tasks
+            List of SimTask objects
         """
         # Generate parameter samples
         param_samples = self.sample(n_samples)
@@ -84,18 +84,7 @@ class SamplingStrategy(ABC):
             )
             tasks.append(task)
 
-        # Create batch
-        batch_id = str(uuid.uuid4())[:8]
-        return SimBatch(
-            batch_id=batch_id,
-            tasks=tasks,
-            sampling_method=self.method_name(),
-            metadata={
-                "n_samples": n_samples,
-                "parameter_space": self.parameter_space.to_dict(),
-                "base_seed": base_seed,
-            }
-        )
+        return tasks
 
     @abstractmethod
     def method_name(self) -> str:

@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Set
 
 # Import the actual implementations
-from .cli import discover, manifest, verify, config
+from .cli import discover, verify, config
+# manifest deprecated - use modelops-bundle register-model instead
 
 
 class CalabariaCLI:
@@ -166,7 +167,7 @@ class CalabariaCLI:
             ValueError: If configuration is invalid
             ImportError: If any model cannot be imported
         """
-        return manifest.build_manifest(check_only=not save)
+        raise NotImplementedError("manifest deprecated - use modelops-bundle register-model") # return manifest.build_manifest(check_only=not save)
 
     def get_manifest(self) -> Dict[str, Any]:
         """Build and return just the manifest dictionary without saving.
@@ -194,7 +195,7 @@ class CalabariaCLI:
         Returns:
             True if manifest generation is deterministic, False otherwise.
         """
-        return manifest.check_manifest_drift()
+        raise NotImplementedError("manifest deprecated - use modelops-bundle register-model") # return manifest.check_manifest_drift()
 
 
 # Convenience functions for quick access without creating a CalabariaCLI instance

@@ -3,11 +3,10 @@ name = "modelops-calabaria"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 
 dependencies = [
- "modelops-bundle",
- "modelops-contracts",
+ "modelops-contracts>=0.1.0",
  "polars>=1.33.1",
  "typer>=0.12.0",
  "toml>=0.10.0",
@@ -24,12 +23,9 @@ dev = [ "black>=25.1.0", "hypothesis>=6.139.1", "pytest>=8.4.2", "ruff>=0.13.0",
 [project.scripts]
 cb = "modelops_calabaria.cli.__main__:cli_main"
 
+[project.entry-points."modelops.wire"]
+execute = "modelops_calabaria.modelops_wire:wire_function"
+
 [tool.calabaria]
 schema = 1
 abi = "model-entrypoint@1"
-
-[tool.uv.sources.modelops-contracts]
-path = "../modelops-contracts"
-
-[tool.uv.sources.modelops-bundle]
-path = "../modelops-bundle"

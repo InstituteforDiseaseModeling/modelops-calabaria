@@ -1,14 +1,13 @@
-"""Sampling commands for generating simulation jobs."""
+"""Sampling commands for generating simulation studies."""
 
 import json
-import uuid
 from pathlib import Path
 from typing import Optional
-from dataclasses import asdict
+import numpy as np
 
 import typer
 
-from modelops_contracts import SimTask, SimBatch, SimJob
+from modelops_contracts import SimulationStudy
 
 from ..parameters import ParameterSpace, ParameterSpec
 from ..sampling.sobol import SobolSampler
@@ -19,272 +18,165 @@ def sobol_command(
     model_class: str = typer.Argument(..., help="Model class from manifest (e.g., models.seir:StochasticSEIR)"),
     scenario: str = typer.Option("baseline", "--scenario", "-s", help="Scenario name"),
     n_samples: int = typer.Option(100, "--n-samples", "-n", help="Number of samples to generate"),
-    bundle_ref: str = typer.Option(..., "--bundle-ref", "-b", help="Bundle reference for code"),
-    output: str = typer.Option("job.json", "--output", "-o", help="Output JSON file"),
-    seed: Optional[int] = typer.Option(42, "--seed", help="Random seed for Sobol scrambling"),
-    scramble: bool = typer.Option(True, "--scramble/--no-scramble", help="Scramble Sobol sequence"),
+    output: str = typer.Option("study.json", "--output", "-o", help="Output filename"),
+    seed: Optional[int] = typer.Option(42, "--seed", help="Random seed for reproducibility"),
+    scramble: bool = typer.Option(True, "--scramble/--no-scramble", help="Use scrambled Sobol sequence"),
 ):
-    """Generate a SimJob using Sobol sampling."""
+    """Generate SimulationStudy using Sobol sampling.
 
-    # Load manifest
-    manifest_path = Path("manifest.json")
-    if not manifest_path.exists():
-        typer.echo("Error: manifest.json not found. Run 'cb manifest build' first.", err=True)
+    This creates a study specification without bundle references.
+    The bundle is added at submission time via mops jobs submit.
+    """
+    # Dynamically import the model class
+    try:
+        module_path, class_name = model_class.rsplit(":", 1)
+        import importlib
+        module = importlib.import_module(module_path)
+        model_cls = getattr(module, class_name)
+
+        # Get parameter space from the model
+        parameter_space = model_cls.parameter_space()
+    except (ImportError, AttributeError, ValueError) as e:
+        typer.echo(f"Error: Could not import model '{model_class}': {e}", err=True)
         raise typer.Exit(1)
 
-    with open(manifest_path) as f:
-        manifest = json.load(f)
+    # For now, skip scenario validation (models can implement scenario checking)
+    # In the future, models could have a scenarios() class method
 
-    # Get model from manifest
-    if model_class not in manifest.get("models", {}):
-        typer.echo(f"Error: Model '{model_class}' not found in manifest", err=True)
-        typer.echo("Available models:", err=True)
-        for model in manifest.get("models", {}).keys():
-            typer.echo(f"  - {model}", err=True)
-        raise typer.Exit(1)
-
-    model_data = manifest["models"][model_class]
-
-    # Check scenario exists
-    if scenario not in model_data.get("scenarios", []):
-        typer.echo(f"Error: Scenario '{scenario}' not found for model '{model_class}'", err=True)
-        typer.echo(f"Available scenarios: {', '.join(model_data['scenarios'])}", err=True)
-        raise typer.Exit(1)
-
-    # Convert param specs to ParameterSpec objects
-    param_specs = []
-    for spec_dict in model_data.get("param_specs", []):
-        # Handle both float and int types
-        if spec_dict["kind"] in ["float", "int", "integer"]:
-            # Convert bounds to int for integer parameters
-            if spec_dict["kind"] in ["int", "integer"]:
-                min_val = int(spec_dict["min"])
-                max_val = int(spec_dict["max"])
-            else:
-                min_val = spec_dict["min"]
-                max_val = spec_dict["max"]
-
-            spec = ParameterSpec(
-                name=spec_dict["name"],
-                kind=spec_dict["kind"],
-                min=min_val,
-                max=max_val,
-                doc=spec_dict.get("doc", "")
-            )
-        else:
-            # For other types, we'd need to handle differently
-            typer.echo(f"Warning: Skipping parameter '{spec_dict['name']}' with unsupported kind '{spec_dict['kind']}'")
-            continue
-        param_specs.append(spec)
-
-    if not param_specs:
-        typer.echo("Error: No valid parameters found for sampling", err=True)
-        raise typer.Exit(1)
-
-    # Create parameter space
-    space = ParameterSpace(param_specs)
+    # Create sampler from the parameter space
+    sampler = SobolSampler(parameter_space, scramble=scramble, seed=seed)
 
     # Generate samples
-    typer.echo(f"Generating {n_samples} Sobol samples for {model_class}/{scenario}")
-    sampler = SobolSampler(space, scramble=scramble, seed=seed)
     samples = sampler.sample(n_samples)
 
-    # Create tasks
-    tasks = []
-    base_seed = seed or 42
-    for i, params in enumerate(samples):
-        task = SimTask.from_components(
-            import_path=model_class.split(":")[0],  # Extract module path
-            scenario=scenario,
-            bundle_ref=bundle_ref,
-            params=params,
-            seed=base_seed + i,
-            outputs=model_data.get("outputs", [])  # Include outputs from manifest
-        )
-        tasks.append(task)
+    typer.echo(f"Generated {len(samples)} Sobol samples for {len(parameter_space.specs)} parameters")
 
-    # Create batch
-    batch_id = str(uuid.uuid4())[:8]
-    batch = SimBatch(
-        batch_id=f"sobol-{batch_id}",
-        tasks=tasks,
+    # Create parameter sets as plain dicts (converting numpy types to Python types)
+    # Note: We use plain dicts here, not ParameterSet from contracts
+    # Calabaria's ParameterSet requires a ParameterSpace reference for validation
+    parameter_sets = []
+    for params in samples:
+        clean_params = {}
+        for k, v in params.items():
+            if isinstance(v, (np.integer, np.floating)):
+                clean_params[k] = v.item()
+            elif isinstance(v, np.bool_):
+                clean_params[k] = bool(v)
+            else:
+                clean_params[k] = v
+        parameter_sets.append(clean_params)
+
+    # Create study (no bundle reference needed)
+    study = SimulationStudy(
+        model=model_class.split(":")[0],  # Just the module path
+        scenario=scenario,
+        parameter_sets=parameter_sets,  # List of dicts
         sampling_method="sobol",
+        n_replicates=1,  # Can be configured later
+        outputs=None,  # Models can define outputs via model_outputs() method
         metadata={
             "n_samples": n_samples,
             "scramble": scramble,
             "seed": seed,
-            "model_class": model_class,
-            "scenario": scenario
+            "model_class": model_class
         }
-    )
-
-    # Create job
-    job_id = str(uuid.uuid4())[:8]
-    job = SimJob(
-        job_id=f"job-{job_id}",
-        batches=[batch],
-        bundle_ref=bundle_ref
     )
 
     # Write output
     output_path = Path(output)
     with open(output_path, "w") as f:
-        # Convert to dict, handling nested dataclasses
-        job_dict = _job_to_dict(job)
-        json.dump(job_dict, f, indent=2)
+        study_dict = _study_to_dict(study)
+        json.dump(study_dict, f, indent=2)
 
-    typer.echo(f"✓ Generated SimJob with {n_samples} tasks")
-    typer.echo(f"  Job ID: {job.job_id}")
-    typer.echo(f"  Bundle: {bundle_ref}")
+    typer.echo(f"✓ Generated SimulationStudy with {len(samples)} parameter sets")
+    typer.echo(f"  Model: {study.model}/{study.scenario}")
+    typer.echo(f"  Sampling: {study.sampling_method}")
     typer.echo(f"  Output: {output_path}")
 
 
 def grid_command(
-    model_class: str = typer.Argument(..., help="Model class from manifest (e.g., models.seir:StochasticSEIR)"),
+    model_class: str = typer.Argument(..., help="Model class from manifest"),
     scenario: str = typer.Option("baseline", "--scenario", "-s", help="Scenario name"),
-    grid_points: int = typer.Option(10, "--grid-points", "-g", help="Number of points per dimension"),
-    bundle_ref: str = typer.Option(..., "--bundle-ref", "-b", help="Bundle reference for code"),
-    output: str = typer.Option("job.json", "--output", "-o", help="Output JSON file"),
-    seed: Optional[int] = typer.Option(42, "--seed", help="Base random seed"),
+    grid_points: int = typer.Option(3, "--grid-points", "-g", help="Number of points per parameter"),
+    output: str = typer.Option("study.json", "--output", "-o", help="Output filename"),
+    seed: Optional[int] = typer.Option(42, "--seed", help="Random seed for reproducibility"),
 ):
-    """Generate a SimJob using Grid sampling."""
+    """Generate SimulationStudy using Grid sampling."""
+    # Dynamically import the model class
+    try:
+        module_path, class_name = model_class.rsplit(":", 1)
+        import importlib
+        module = importlib.import_module(module_path)
+        model_cls = getattr(module, class_name)
 
-    # Load manifest
-    manifest_path = Path("manifest.json")
-    if not manifest_path.exists():
-        typer.echo("Error: manifest.json not found. Run 'cb manifest build' first.", err=True)
+        # Get parameter space from the model
+        parameter_space = model_cls.parameter_space()
+    except (ImportError, AttributeError, ValueError) as e:
+        typer.echo(f"Error: Could not import model '{model_class}': {e}", err=True)
         raise typer.Exit(1)
 
-    with open(manifest_path) as f:
-        manifest = json.load(f)
+    # For now, skip scenario validation (models can implement scenario checking)
+    # In the future, models could have a scenarios() class method
 
-    # Get model from manifest
-    if model_class not in manifest.get("models", {}):
-        typer.echo(f"Error: Model '{model_class}' not found in manifest", err=True)
-        raise typer.Exit(1)
-
-    model_data = manifest["models"][model_class]
-
-    # Check scenario exists
-    if scenario not in model_data.get("scenarios", []):
-        typer.echo(f"Error: Scenario '{scenario}' not found", err=True)
-        raise typer.Exit(1)
-
-    # Convert param specs
-    param_specs = []
-    for spec_dict in model_data.get("param_specs", []):
-        if spec_dict["kind"] in ["float", "int", "integer"]:
-            # Convert bounds to int for integer parameters
-            if spec_dict["kind"] in ["int", "integer"]:
-                min_val = int(spec_dict["min"])
-                max_val = int(spec_dict["max"])
-            else:
-                min_val = spec_dict["min"]
-                max_val = spec_dict["max"]
-
-            spec = ParameterSpec(
-                name=spec_dict["name"],
-                kind=spec_dict["kind"],
-                min=min_val,
-                max=max_val,
-                doc=spec_dict.get("doc", "")
-            )
-            param_specs.append(spec)
-
-    # Create parameter space
-    space = ParameterSpace(param_specs)
+    # Create sampler from the parameter space
+    sampler = GridSampler(parameter_space, n_points_per_param=grid_points)
 
     # Generate samples
-    typer.echo(f"Generating grid with {grid_points} points per dimension")
-    sampler = GridSampler(space, n_points_per_param=grid_points)
     samples = sampler.sample(None)  # Grid determines its own size
 
-    typer.echo(f"Generated {len(samples)} grid points for {len(param_specs)} parameters")
+    typer.echo(f"Generated {len(samples)} grid points for {len(parameter_space.specs)} parameters")
 
-    # Create tasks
-    tasks = []
-    base_seed = seed or 42
-    for i, params in enumerate(samples):
-        task = SimTask.from_components(
-            import_path=model_class.split(":")[0],
-            scenario=scenario,
-            bundle_ref=bundle_ref,
-            params=params,
-            seed=base_seed + i,
-            outputs=model_data.get("outputs", [])
-        )
-        tasks.append(task)
+    # Create parameter sets as plain dicts (converting numpy types to Python types)
+    # Note: We use plain dicts here, not ParameterSet from contracts
+    parameter_sets = []
+    for params in samples:
+        clean_params = {}
+        for k, v in params.items():
+            if isinstance(v, (np.integer, np.floating)):
+                clean_params[k] = v.item()
+            elif isinstance(v, np.bool_):
+                clean_params[k] = bool(v)
+            else:
+                clean_params[k] = v
+        parameter_sets.append(clean_params)
 
-    # Create batch
-    batch_id = str(uuid.uuid4())[:8]
-    batch = SimBatch(
-        batch_id=f"grid-{batch_id}",
-        tasks=tasks,
+    # Create study
+    study = SimulationStudy(
+        model=model_class.split(":")[0],
+        scenario=scenario,
+        parameter_sets=parameter_sets,  # List of dicts
         sampling_method="grid",
+        n_replicates=1,
+        outputs=None,  # Models can define outputs via model_outputs() method
         metadata={
             "grid_points": grid_points,
             "total_samples": len(samples),
-            "model_class": model_class,
-            "scenario": scenario
+            "model_class": model_class
         }
-    )
-
-    # Create job
-    job_id = str(uuid.uuid4())[:8]
-    job = SimJob(
-        job_id=f"job-{job_id}",
-        batches=[batch],
-        bundle_ref=bundle_ref
     )
 
     # Write output
     output_path = Path(output)
     with open(output_path, "w") as f:
-        job_dict = _job_to_dict(job)
-        json.dump(job_dict, f, indent=2)
+        study_dict = _study_to_dict(study)
+        json.dump(study_dict, f, indent=2)
 
-    typer.echo(f"✓ Generated SimJob with {len(samples)} tasks")
-    typer.echo(f"  Job ID: {job.job_id}")
+    typer.echo(f"✓ Generated SimulationStudy with {len(samples)} parameter sets")
+    typer.echo(f"  Model: {study.model}/{study.scenario}")
     typer.echo(f"  Output: {output_path}")
 
 
-def _job_to_dict(job: SimJob) -> dict:
-    """Convert SimJob to dict, handling nested dataclasses and numpy types."""
-    import numpy as np
-
-    def convert_value(v):
-        """Convert numpy types to Python types."""
-        if isinstance(v, (np.integer, np.floating)):
-            return v.item()
-        elif isinstance(v, np.ndarray):
-            return v.tolist()
-        return v
-
+def _study_to_dict(study: SimulationStudy) -> dict:
+    """Convert SimulationStudy to dictionary for JSON serialization."""
     return {
-        "job_id": job.job_id,
-        "bundle_ref": job.bundle_ref,
-        "priority": job.priority,
-        "resource_requirements": job.resource_requirements,
-        "batches": [
-            {
-                "batch_id": batch.batch_id,
-                "sampling_method": batch.sampling_method,
-                "metadata": batch.metadata,
-                "tasks": [
-                    {
-                        "entrypoint": str(task.entrypoint),
-                        "bundle_ref": task.bundle_ref,
-                        "params": {
-                            "param_id": task.params.param_id,
-                            "values": {k: convert_value(v) for k, v in task.params.params.items()},
-                        },
-                        "seed": task.seed,
-                        "outputs": list(task.outputs) if task.outputs else None,
-                        "config": dict(task.config) if task.config else None
-                    }
-                    for task in batch.tasks
-                ]
-            }
-            for batch in job.batches
-        ]
+        "model": study.model,
+        "scenario": study.scenario,
+        "parameter_sets": [
+            {"params": ps} if isinstance(ps, dict) else {"params": ps.params}
+            for ps in study.parameter_sets
+        ],
+        "sampling_method": study.sampling_method,
+        "n_replicates": study.n_replicates,
+        "outputs": study.outputs,
+        "metadata": study.metadata
     }
