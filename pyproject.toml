@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 
 dependencies = [
- "modelops-contracts>=0.1.0",
+ "modelops-contracts @ git+https://github.com/vsbuffalo/modelops-contracts.git",
  "polars>=1.33.1",
  "typer>=0.12.0",
  "toml>=0.10.0",
@@ -18,13 +18,16 @@ requires = [ "hatchling",]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = [ "black>=25.1.0", "hypothesis>=6.139.1", "pytest>=8.4.2", "ruff>=0.13.0", "numpy>=1.24.0",]
+dev = [ "black>=25.1.0", "hypothesis>=6.139.1", "pytest>=8.4.2", "pytest-cov>=6.0.0", "ruff>=0.13.0", "numpy>=1.24.0",]
 
 [project.scripts]
 cb = "modelops_calabaria.cli.__main__:cli_main"
 
 [project.entry-points."modelops.wire"]
 execute = "modelops_calabaria.modelops_wire:wire_function"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.calabaria]
 schema = 1

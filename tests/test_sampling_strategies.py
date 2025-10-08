@@ -231,7 +231,7 @@ class TestSamplingIntegration:
         space = ParameterSpace(specs)
         sampler = GridSampler(space, n_points_per_param=2)
 
-        batch = sampler.generate_tasks(
+        tasks = sampler.generate_tasks(
             model_class="models.test.Model",
             scenario="baseline",
             bundle_ref="sha256:" + "a" * 64,
@@ -239,12 +239,10 @@ class TestSamplingIntegration:
             base_seed=42
         )
 
-        assert batch.batch_id is not None
-        assert batch.sampling_method == "grid"
-        assert len(batch.tasks) == 4  # 2x2 grid
+        assert len(tasks) == 4  # 2x2 grid
 
         # Check tasks are properly formed
-        for i, task in enumerate(batch.tasks):
+        for i, task in enumerate(tasks):
             assert task.entrypoint == "models.test.Model/baseline"
             assert task.bundle_ref == "sha256:" + "a" * 64
             assert task.seed == 42 + i
