@@ -65,13 +65,21 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
 
     # Find matching model in registry
     model_key = None
+    full_entrypoint = None
     for key, model_data in registry.get("models", {}).items():
-        if model_data.get("entrypoint") == entrypoint:
+        registry_entrypoint = model_data.get("entrypoint", "")
+
+        # Exact match
+        if registry_entrypoint == entrypoint:
             model_key = key
+            full_entrypoint = registry_entrypoint
             break
-        # Also try partial match
-        if entrypoint in model_data.get("entrypoint", ""):
+
+        # If entrypoint is just module name (e.g., "models.seir"),
+        # match against registry entries that start with it
+        if ":" not in entrypoint and registry_entrypoint.startswith(entrypoint + ":"):
             model_key = key
+            full_entrypoint = registry_entrypoint
             break
 
     if not model_key:
@@ -84,11 +92,15 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
             }).encode()
         }
 
+    # Use the full entrypoint (with class name) for the manifest
+    if not full_entrypoint:
+        full_entrypoint = registry["models"][model_key].get("entrypoint", entrypoint)
+
     # Create a minimal manifest for wire_loader
     # (In future, this could come from a more complete manifest)
     manifest = {
         "models": {
-            entrypoint: {
+            full_entrypoint: {
                 "model_digest": registry["models"][model_key].get("model_digest", "unknown"),
                 "param_specs": [],  # TODO: Extract from model
                 "scenarios": registry["models"][model_key].get("scenarios", []),
@@ -98,8 +110,8 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
     }
 
     try:
-        # Create entry record from manifest
-        entry = entry_from_manifest(entrypoint, manifest)
+        # Create entry record from manifest using full entrypoint
+        entry = entry_from_manifest(full_entrypoint, manifest)
 
         # Create wire function for this model
         wire_fn = make_wire(entry)
