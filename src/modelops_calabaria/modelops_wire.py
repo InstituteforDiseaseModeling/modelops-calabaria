@@ -96,13 +96,36 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
     if not full_entrypoint:
         full_entrypoint = registry["models"][model_key].get("entrypoint", entrypoint)
 
+    # Extract parameter specs from the model class
+    param_specs = []
+    try:
+        # Import the model to get its parameter space
+        module_name, class_name = full_entrypoint.split(":")
+        import importlib
+        module = importlib.import_module(module_name)
+        model_class = getattr(module, class_name)
+
+        # Get parameter space if available
+        if hasattr(model_class, 'parameter_space'):
+            space = model_class.parameter_space()
+            # Convert to serialized format for manifest
+            for spec in space.specs:
+                param_specs.append({
+                    "name": spec.name,
+                    "min": spec.min,
+                    "max": spec.max,
+                    "kind": spec.kind,
+                    "doc": spec.doc
+                })
+    except Exception as e:
+        logger.warning(f"Could not extract parameter specs from {full_entrypoint}: {e}")
+
     # Create a minimal manifest for wire_loader
-    # (In future, this could come from a more complete manifest)
     manifest = {
         "models": {
             full_entrypoint: {
                 "model_digest": registry["models"][model_key].get("model_digest", "unknown"),
-                "param_specs": [],  # TODO: Extract from model
+                "param_specs": param_specs,
                 "scenarios": registry["models"][model_key].get("scenarios", []),
                 "outputs": registry["models"][model_key].get("outputs", []),
             }
@@ -125,10 +148,11 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
         )
 
         # Convert WireResponse to Dict[str, bytes]
+        # Note: result.outputs already contains bytes (Arrow IPC format)
         outputs = {}
-        for name, table in result.outputs.items():
-            # Serialize table to parquet bytes
-            outputs[name] = table.write_parquet()
+        for name, table_bytes in result.outputs.items():
+            # Already serialized as bytes, no need to call write_parquet
+            outputs[name] = table_bytes
 
         # Add metadata
         outputs["metadata"] = json.dumps({
