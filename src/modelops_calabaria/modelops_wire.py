@@ -116,13 +116,12 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
         # Create wire function for this model
         wire_fn = make_wire(entry)
 
-        # Execute the wire function
-        # Wire functions expect (params_dict, seed, scenario_stack, outputs)
+        # Execute the wire function with keyword arguments
         result = wire_fn(
-            params,  # M-space parameters
-            seed,    # Random seed
-            [],      # Empty scenario stack for now
-            None     # Default outputs
+            params_M=params,      # M-space parameters
+            seed=seed,           # Random seed
+            scenario_stack=(),   # Empty scenario stack for now
+            outputs=None         # Default outputs
         )
 
         # Convert WireResponse to Dict[str, bytes]
