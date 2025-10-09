@@ -7,7 +7,6 @@ The wire function is discovered by ModelOps via the 'modelops.wire' entry point
 and handles model execution within bundles.
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Dict, Any
@@ -20,6 +19,11 @@ from .wire_loader import entry_from_manifest, make_wire
 
 logger = logging.getLogger(__name__)
 
+
+def _json_dumps(data: Any) -> bytes:
+    """Helper to dump JSON with local import to avoid Python 3.13 scope issues."""
+    import json as json_module
+    return json_module.dumps(data).encode('utf-8')
 
 def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[str, bytes]:
     """Execute a Calabaria model via the wire protocol.
@@ -46,11 +50,11 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
         logger.warning(f"No registry found at {REGISTRY_PATH}")
         return {
             "table": b"",  # Empty table
-            "metadata": json.dumps({
+            "metadata": _json_dumps({
                 "error": f"No registry found at {REGISTRY_PATH}",
                 "entrypoint": entrypoint,
                 "seed": seed
-            }).encode()
+            })
         }
 
     # Load registry (this contains model metadata from register-model)
@@ -99,11 +103,11 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
         logger.error(f"Entrypoint {entrypoint} not found in registry")
         return {
             "table": b"",
-            "metadata": json.dumps({
+            "metadata": _json_dumps({
                 "error": f"Entrypoint {entrypoint} not found in registry",
                 "available_models": list(registry.get("models", {}).keys()),
                 "available_targets": list(registry.get("targets", {}).keys())
-            }).encode()
+            })
         }
 
     # Handle targets differently - they just return Target objects
@@ -119,7 +123,6 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
             target = target_func()
 
             # Convert Target to a simple response
-            import json
             from io import BytesIO
 
             # Return target metadata and data
@@ -127,24 +130,24 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
             target.data.write_ipc(buffer)
             return {
                 "target_data": buffer.getvalue(),
-                "metadata": json.dumps({
+                "metadata": _json_dumps({
                     "type": "target",
                     "entrypoint": entrypoint,
                     "model_output": target.model_output,
                     "alignment": type(target.alignment).__name__,
                     "evaluation": type(target.evaluation).__name__,
                     "weight": target.weight
-                }).encode()
+                })
             }
         except Exception as e:
             logger.error(f"Target execution failed: {e}", exc_info=True)
             return {
                 "table": b"",
-                "metadata": json.dumps({
+                "metadata": _json_dumps({
                     "error": str(e),
                     "type": "target",
                     "entrypoint": entrypoint
-                }).encode()
+                })
             }
 
     # Use the full entrypoint (with class name) for the manifest
@@ -210,12 +213,12 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
             outputs[name] = table_bytes
 
         # Add metadata
-        outputs["metadata"] = json.dumps({
+        outputs["metadata"] = _json_dumps({
             "entrypoint": entrypoint,
             "seed": seed,
             "params": params,
             "model_digest": entry.model_digest
-        }).encode()
+        })
 
         logger.info(f"Wire function returning {len(outputs)} artifacts")
         return outputs
@@ -225,9 +228,9 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
         # Return error information
         return {
             "table": b"",
-            "metadata": json.dumps({
+            "metadata": _json_dumps({
                 "error": str(e),
                 "entrypoint": entrypoint,
                 "seed": seed
-            }).encode()
+            })
         }
