@@ -149,6 +149,74 @@ def model_scenario(name: str):
     return decorator
 
 
+# Runtime registry for calibration targets
+_target_registry = {}
+
+
+def calibration_target(**metadata):
+    """Mark a function as a calibration target with metadata.
+
+    This decorator serves two purposes:
+    1. Stores metadata on the function for AST-based discovery
+    2. Registers the function in a runtime registry
+
+    The decorated function should accept a single argument `data_paths`
+    which is a dict mapping data keys to file paths.
+
+    Args:
+        **metadata: Target metadata including:
+            - model_output: Name of model output to calibrate against
+            - data: Dict mapping data keys to file paths
+            - name: Optional target name (defaults to function name)
+
+    Returns:
+        Decorator function
+
+    Example:
+        @calibration_target(
+            model_output="prevalence",
+            data={
+                'observed': "data/observed_prevalence.csv",
+                'population': "data/population.csv"
+            }
+        )
+        def prevalence_target(data_paths):
+            observed = pl.read_csv(data_paths['observed'])
+            return Target(...)
+    """
+    def decorator(func: Callable) -> Callable:
+        # Store metadata on function for AST discovery
+        func._target_metadata = metadata
+
+        # Create wrapper that passes data paths
+        def wrapper():
+            # Extract data paths from metadata
+            data_paths = metadata.get('data', {})
+            return func(data_paths)
+
+        # Preserve metadata on wrapper
+        wrapper._target_metadata = metadata
+        wrapper._original_func = func
+        wrapper.__name__ = func.__name__
+        wrapper.__doc__ = func.__doc__
+
+        # Register in runtime registry
+        target_name = metadata.get('name', func.__name__)
+        _target_registry[target_name] = wrapper
+
+        return wrapper
+    return decorator
+
+
+def get_registered_targets() -> Dict[str, Callable]:
+    """Get all registered calibration targets.
+
+    Returns:
+        Dict mapping target names to decorated functions
+    """
+    return _target_registry.copy()
+
+
 def discover_decorated_methods(cls) -> tuple[Dict[str, str], Dict[str, str]]:
     """Discover decorated methods in a class.
 

@@ -24,6 +24,8 @@ from .scenarios import (
 from .decorators import (
     model_output,
     model_scenario,
+    calibration_target,
+    get_registered_targets,
 )
 from .constants import SEED_COL
 from .base_model import BaseModel

@@ -49,7 +49,15 @@ def wire_target_function(
     targets_result = target_func()
 
     # Ensure we have a Targets object
-    if isinstance(targets_result, list):
+    # Handle different return types:
+    # - Single Target from decorated function
+    # - Targets collection from old-style get_targets()
+    # - List of Target objects
+    from .core.target import Target
+
+    if isinstance(targets_result, Target):
+        targets = Targets(targets=[targets_result])
+    elif isinstance(targets_result, list):
         targets = Targets(targets=targets_result)
     else:
         targets = targets_result

@@ -21,6 +21,8 @@ def sobol_command(
     output: str = typer.Option("study.json", "--output", "-o", help="Output filename"),
     seed: Optional[int] = typer.Option(42, "--seed", help="Random seed for reproducibility"),
     scramble: bool = typer.Option(True, "--scramble/--no-scramble", help="Use scrambled Sobol sequence"),
+    targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated list of target entrypoints (e.g., targets.prevalence:prevalence_target)"),
+    n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
 ):
     """Generate SimulationStudy using Sobol sampling.
 
@@ -66,14 +68,20 @@ def sobol_command(
                 clean_params[k] = v
         parameter_sets.append(clean_params)
 
+    # Parse targets if specified
+    target_list = None
+    if targets:
+        target_list = [t.strip() for t in targets.split(",") if t.strip()]
+
     # Create study (no bundle reference needed)
     study = SimulationStudy(
         model=model_class.split(":")[0],  # Just the module path
         scenario=scenario,
         parameter_sets=parameter_sets,  # List of dicts
         sampling_method="sobol",
-        n_replicates=1,  # Can be configured later
+        n_replicates=n_replicates,
         outputs=None,  # Models can define outputs via model_outputs() method
+        targets=target_list,  # Target entrypoints for evaluation
         metadata={
             "n_samples": n_samples,
             "scramble": scramble,
@@ -91,6 +99,8 @@ def sobol_command(
     typer.echo(f"✓ Generated SimulationStudy with {len(samples)} parameter sets")
     typer.echo(f"  Model: {study.model}/{study.scenario}")
     typer.echo(f"  Sampling: {study.sampling_method}")
+    if study.targets:
+        typer.echo(f"  Targets: {', '.join(study.targets)}")
     typer.echo(f"  Output: {output_path}")
 
 
@@ -100,6 +110,8 @@ def grid_command(
     grid_points: int = typer.Option(3, "--grid-points", "-g", help="Number of points per parameter"),
     output: str = typer.Option("study.json", "--output", "-o", help="Output filename"),
     seed: Optional[int] = typer.Option(42, "--seed", help="Random seed for reproducibility"),
+    targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated list of target entrypoints"),
+    n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
 ):
     """Generate SimulationStudy using Grid sampling."""
     # Dynamically import the model class
@@ -140,14 +152,20 @@ def grid_command(
                 clean_params[k] = v
         parameter_sets.append(clean_params)
 
+    # Parse targets if specified
+    target_list = None
+    if targets:
+        target_list = [t.strip() for t in targets.split(",") if t.strip()]
+
     # Create study
     study = SimulationStudy(
         model=model_class.split(":")[0],
         scenario=scenario,
         parameter_sets=parameter_sets,  # List of dicts
         sampling_method="grid",
-        n_replicates=1,
+        n_replicates=n_replicates,
         outputs=None,  # Models can define outputs via model_outputs() method
+        targets=target_list,  # Target entrypoints for evaluation
         metadata={
             "grid_points": grid_points,
             "total_samples": len(samples),
@@ -163,12 +181,14 @@ def grid_command(
 
     typer.echo(f"✓ Generated SimulationStudy with {len(samples)} parameter sets")
     typer.echo(f"  Model: {study.model}/{study.scenario}")
+    if study.targets:
+        typer.echo(f"  Targets: {', '.join(study.targets)}")
     typer.echo(f"  Output: {output_path}")
 
 
 def _study_to_dict(study: SimulationStudy) -> dict:
     """Convert SimulationStudy to dictionary for JSON serialization."""
-    return {
+    result = {
         "model": study.model,
         "scenario": study.scenario,
         "parameter_sets": [
@@ -180,3 +200,7 @@ def _study_to_dict(study: SimulationStudy) -> dict:
         "outputs": study.outputs,
         "metadata": study.metadata
     }
+    # Only include targets if they exist
+    if study.targets:
+        result["targets"] = study.targets
+    return result

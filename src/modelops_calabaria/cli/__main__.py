@@ -182,9 +182,11 @@ def sampling_sobol(
     output: str = typer.Option("study.json", "--output", "-o"),
     seed: Optional[int] = typer.Option(42, "--seed"),
     scramble: bool = typer.Option(True, "--scramble/--no-scramble"),
+    targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated target entrypoints"),
+    n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
 ):
     """Generate SimulationStudy using Sobol sampling."""
-    sobol_command(model_class, scenario, n_samples, output, seed, scramble)
+    sobol_command(model_class, scenario, n_samples, output, seed, scramble, targets, n_replicates)
 
 
 @sampling_app.command("grid")
@@ -194,9 +196,11 @@ def sampling_grid(
     grid_points: int = typer.Option(10, "--grid-points", "-g"),
     output: str = typer.Option("study.json", "--output", "-o"),
     seed: Optional[int] = typer.Option(42, "--seed"),
+    targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated target entrypoints"),
+    n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
 ):
     """Generate SimulationStudy using Grid sampling."""
-    grid_command(model_class, scenario, grid_points, output, seed)
+    grid_command(model_class, scenario, grid_points, output, seed, targets, n_replicates)
 
 
 @app.command("version")
