@@ -43,7 +43,9 @@ class TestCLISampling:
                 n_samples=8,
                 output=str(output_path),
                 seed=42,
-                scramble=False
+                scramble=False,
+                targets=None,
+                n_replicates=1
             )
 
             # Check output was generated
@@ -82,7 +84,9 @@ class TestCLISampling:
                 scenario="variant",
                 grid_points=2,
                 output=str(output_path),
-                seed=100
+                seed=100,
+                targets=None,
+                n_replicates=1
             )
 
             # Check output
@@ -108,7 +112,11 @@ class TestCLISampling:
                 model_class="models.nonexistent:Model",
                 scenario="baseline",
                 n_samples=8,
-                output="study.json"
+                output="study.json",
+                seed=42,
+                scramble=True,
+                targets=None,
+                n_replicates=1
             )
 
         assert exc_info.value.exit_code == 1
@@ -130,7 +138,11 @@ class TestCLISampling:
                 model_class="models.test:BadModel",
                 scenario="baseline",
                 n_samples=8,
-                output="study.json"
+                output="study.json",
+                seed=42,
+                scramble=True,
+                targets=None,
+                n_replicates=1
             )
 
         assert exc_info.value.exit_code == 1
@@ -151,7 +163,9 @@ class TestCLISampling:
                 n_samples=16,
                 output=str(output_path),
                 seed=123,
-                scramble=True
+                scramble=True,
+                targets=None,
+                n_replicates=1
             )
 
             assert output_path.exists()
@@ -177,7 +191,9 @@ class TestCLISampling:
                 scenario="baseline",
                 grid_points=3,
                 output=str(output_path),
-                seed=200
+                seed=200,
+                targets=None,
+                n_replicates=1
             )
 
             assert output_path.exists()
