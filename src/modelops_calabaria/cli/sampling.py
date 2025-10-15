@@ -23,22 +23,27 @@ def sobol_command(
     scramble: bool = typer.Option(True, "--scramble/--no-scramble", help="Use scrambled Sobol sequence"),
     targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated list of target entrypoints (e.g., targets.prevalence:prevalence_target)"),
     n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
+    project_root: Optional[str] = typer.Option(None, "--project-root", help="Project root to add to sys.path (default: cwd)"),
+    no_cwd_import: bool = typer.Option(False, "--no-cwd-import", help="Do not add project root to sys.path during import"),
 ):
     """Generate SimulationStudy using Sobol sampling.
 
     This creates a study specification without bundle references.
     The bundle is added at submission time via mops jobs submit.
     """
-    # Dynamically import the model class
+    # Dynamically import the model class using load_symbol
+    from ..utils import load_symbol
+
     try:
-        module_path, class_name = model_class.rsplit(":", 1)
-        import importlib
-        module = importlib.import_module(module_path)
-        model_cls = getattr(module, class_name)
+        model_cls = load_symbol(
+            model_class,
+            project_root=project_root,
+            allow_cwd_import=(not no_cwd_import)
+        )
 
         # Get parameter space from the model
         parameter_space = model_cls.parameter_space()
-    except (ImportError, AttributeError, ValueError) as e:
+    except (ModuleNotFoundError, AttributeError, ValueError) as e:
         typer.echo(f"Error: Could not import model '{model_class}': {e}", err=True)
         raise typer.Exit(1)
 
@@ -112,18 +117,23 @@ def grid_command(
     seed: Optional[int] = typer.Option(42, "--seed", help="Random seed for reproducibility"),
     targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated list of target entrypoints"),
     n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
+    project_root: Optional[str] = typer.Option(None, "--project-root", help="Project root to add to sys.path (default: cwd)"),
+    no_cwd_import: bool = typer.Option(False, "--no-cwd-import", help="Do not add project root to sys.path during import"),
 ):
     """Generate SimulationStudy using Grid sampling."""
-    # Dynamically import the model class
+    # Dynamically import the model class using load_symbol
+    from ..utils import load_symbol
+
     try:
-        module_path, class_name = model_class.rsplit(":", 1)
-        import importlib
-        module = importlib.import_module(module_path)
-        model_cls = getattr(module, class_name)
+        model_cls = load_symbol(
+            model_class,
+            project_root=project_root,
+            allow_cwd_import=(not no_cwd_import)
+        )
 
         # Get parameter space from the model
         parameter_space = model_cls.parameter_space()
-    except (ImportError, AttributeError, ValueError) as e:
+    except (ModuleNotFoundError, AttributeError, ValueError) as e:
         typer.echo(f"Error: Could not import model '{model_class}': {e}", err=True)
         raise typer.Exit(1)
 

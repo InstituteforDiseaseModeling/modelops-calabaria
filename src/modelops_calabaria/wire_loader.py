@@ -13,7 +13,6 @@ Key principles:
 
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
-import importlib
 import io
 from types import MappingProxyType
 
@@ -96,16 +95,12 @@ def make_wire(entry: EntryRecord) -> Callable:
     if entry.abi_version != WireABI.V1:
         raise ValueError(f"Unsupported ABI version: {entry.abi_version}")
 
-    # Parse class path
-    module_name, _, class_name = entry.class_path.partition(":")
-    if not class_name:
-        raise ValueError(f"Invalid class_path: {entry.class_path}")
+    # Import model class using load_symbol for better path handling
+    from .utils import load_symbol
 
-    # Import model class (done once per wire function creation)
     try:
-        module = importlib.import_module(module_name)
-        model_class = getattr(module, class_name)
-    except (ImportError, AttributeError) as e:
+        model_class = load_symbol(entry.class_path)
+    except (ModuleNotFoundError, AttributeError, ValueError) as e:
         raise ImportError(f"Cannot import {entry.class_path}: {e}")
 
     # Validate it's a BaseModel subclass

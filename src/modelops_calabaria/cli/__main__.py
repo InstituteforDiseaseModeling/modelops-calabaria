@@ -184,9 +184,11 @@ def sampling_sobol(
     scramble: bool = typer.Option(True, "--scramble/--no-scramble"),
     targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated target entrypoints"),
     n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
+    project_root: Optional[str] = typer.Option(None, "--project-root", help="Project root to add to sys.path (default: cwd)"),
+    no_cwd_import: bool = typer.Option(False, "--no-cwd-import", help="Do not add project root to sys.path during import"),
 ):
     """Generate SimulationStudy using Sobol sampling."""
-    sobol_command(model_class, scenario, n_samples, output, seed, scramble, targets, n_replicates)
+    sobol_command(model_class, scenario, n_samples, output, seed, scramble, targets, n_replicates, project_root, no_cwd_import)
 
 
 @sampling_app.command("grid")
@@ -198,9 +200,11 @@ def sampling_grid(
     seed: Optional[int] = typer.Option(42, "--seed"),
     targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated target entrypoints"),
     n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
+    project_root: Optional[str] = typer.Option(None, "--project-root", help="Project root to add to sys.path (default: cwd)"),
+    no_cwd_import: bool = typer.Option(False, "--no-cwd-import", help="Do not add project root to sys.path during import"),
 ):
     """Generate SimulationStudy using Grid sampling."""
-    grid_command(model_class, scenario, grid_points, output, seed, targets, n_replicates)
+    grid_command(model_class, scenario, grid_points, output, seed, targets, n_replicates, project_root, no_cwd_import)
 
 
 @app.command("version")
