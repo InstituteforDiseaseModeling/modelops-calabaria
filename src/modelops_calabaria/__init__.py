@@ -1,88 +1,10 @@
-"""ModelOps-Calabaria bridge package.
+"""ModelOps-Calabaria: Science framework for distributed epidemic modeling.
 
-This package provides the integration layer between the Calabaria science
-framework and the ModelOps infrastructure, implementing the protocols
-defined in modelops-contracts.
+This package provides the modeling framework layer for ModelOps, implementing
+the contracts defined in modelops-contracts for distributed simulation and
+calibration on Kubernetes infrastructure.
 """
 
-from .parameters import (
-    Scalar,
-    ParameterSpec,
-    ParameterSpace,
-    ParameterSet,
-    ParameterView,
-    Identity,
-    LogTransform,
-    LogitTransform,
-    AffineSqueezedLogit,
-)
-from .scenarios import (
-    ScenarioSpec,
-    compose_scenarios,
-    scenario_hash,
-)
-from .decorators import (
-    model_output,
-    model_scenario,
-    calibration_target,
-    get_registered_targets,
-)
-from .constants import SEED_COL
-from .base_model import BaseModel
-from .wire_protocol import (
-    WireABI,
-    SerializedParameterSpec,
-    WireResponse,
-)
-from .api import (
-    CalabariaCLI,
-    quick_discover,
-    quick_manifest,
-    quick_verify,
-    quick_bundle_id,
-)
-from .sampling import (
-    SamplingStrategy,
-    GridSampler,
-    SobolSampler,
-)
-
-__version__ = "0.1.0"
-
-__all__ = [
-    # Parameters
-    "Scalar",
-    "ParameterSpec",
-    "ParameterSpace",
-    "ParameterSet",
-    "ParameterView",
-    # Transforms
-    "Identity",
-    "LogTransform",
-    "LogitTransform",
-    "AffineSqueezedLogit",
-    # Scenarios
-    "ScenarioSpec",
-    "compose_scenarios",
-    "scenario_hash",
-    # Decorators
-    "model_output",
-    "model_scenario",
-    "SEED_COL",
-    # Base Model
-    "BaseModel",
-    # Wire Protocol
-    "WireABI",
-    "SerializedParameterSpec",
-    "WireResponse",
-    # API
-    "CalabariaCLI",
-    "quick_discover",
-    "quick_manifest",
-    "quick_verify",
-    "quick_bundle_id",
-    # Sampling strategies
-    "SamplingStrategy",
-    "GridSampler",
-    "SobolSampler",
-]
+# Export the public API
+from .api import *  # noqa: F403, F401
+from .api import __all__, __version__  # noqa: F401
