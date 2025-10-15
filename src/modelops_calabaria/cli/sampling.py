@@ -79,8 +79,14 @@ def sobol_command(
         target_list = [t.strip() for t in targets.split(",") if t.strip()]
 
     # Create study (no bundle reference needed)
+    # Convert file path format (models/seir.py) to module format (models.seir)
+    model_path = model_class.split(":")[0]
+    if model_path.endswith(".py"):
+        # Remove .py extension and replace / with .
+        model_path = model_path[:-3].replace("/", ".")
+
     study = SimulationStudy(
-        model=model_class.split(":")[0],  # Just the module path
+        model=model_path,  # Module path in proper format
         scenario=scenario,
         parameter_sets=parameter_sets,  # List of dicts
         sampling_method="sobol",
@@ -168,8 +174,14 @@ def grid_command(
         target_list = [t.strip() for t in targets.split(",") if t.strip()]
 
     # Create study
+    # Convert file path format (models/seir.py) to module format (models.seir)
+    model_path = model_class.split(":")[0]
+    if model_path.endswith(".py"):
+        # Remove .py extension and replace / with .
+        model_path = model_path[:-3].replace("/", ".")
+
     study = SimulationStudy(
-        model=model_class.split(":")[0],
+        model=model_path,
         scenario=scenario,
         parameter_sets=parameter_sets,  # List of dicts
         sampling_method="grid",

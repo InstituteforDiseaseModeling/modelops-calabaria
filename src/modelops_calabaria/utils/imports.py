@@ -132,22 +132,22 @@ def load_symbol(
                 f"Either set PYTHONPATH or use --project-root"
             )
 
-    # Fallback: try with project root in sys.path
-    root = Path(project_root or os.getcwd()).resolve()
+        # Fallback: try with project root in sys.path
+        root = Path(project_root or os.getcwd()).resolve()
 
-    with _prepend_sys_path(str(root)):
-        try:
-            mod = import_module(module_part)
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError(
-                f"Cannot import '{module_part}' even with project root '{root}' in path. "
-                f"Check that the module path is correct and the file exists."
-            )
+        with _prepend_sys_path(str(root)):
+            try:
+                mod = import_module(module_part)
+            except ModuleNotFoundError:
+                raise ModuleNotFoundError(
+                    f"Cannot import '{module_part}' even with project root '{root}' in path. "
+                    f"Check that the module path is correct and the file exists."
+                )
 
-        if not hasattr(mod, symbol):
-            raise AttributeError(f"Module {module_part} has no attribute '{symbol}'")
+            if not hasattr(mod, symbol):
+                raise AttributeError(f"Module {module_part} has no attribute '{symbol}'")
 
-        obj = getattr(mod, symbol)
+            obj = getattr(mod, symbol)
 
         # Safety check: warn if module resolved outside project root
         mfile = Path(getattr(mod, "__file__", "")).resolve()
