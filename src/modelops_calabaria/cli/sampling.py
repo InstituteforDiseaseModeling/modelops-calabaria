@@ -12,6 +12,7 @@ from modelops_contracts import SimulationStudy
 from ..parameters import ParameterSpace, ParameterSpec
 from ..sampling.sobol import SobolSampler
 from ..sampling.grid import GridSampler
+from ..utils import load_symbol
 
 
 def sobol_command(
@@ -31,9 +32,6 @@ def sobol_command(
     This creates a study specification without bundle references.
     The bundle is added at submission time via mops jobs submit.
     """
-    # Dynamically import the model class using load_symbol
-    from ..utils import load_symbol
-
     try:
         model_cls = load_symbol(
             model_class,
@@ -127,9 +125,6 @@ def grid_command(
     no_cwd_import: bool = typer.Option(False, "--no-cwd-import", help="Do not add project root to sys.path during import"),
 ):
     """Generate SimulationStudy using Grid sampling."""
-    # Dynamically import the model class using load_symbol
-    from ..utils import load_symbol
-
     try:
         model_cls = load_symbol(
             model_class,

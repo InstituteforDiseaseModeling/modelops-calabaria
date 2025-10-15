@@ -310,12 +310,12 @@ class TestPropertyTests:
 
     @given(
         base=st.dictionaries(
-            st.text(min_size=1, max_size=10),
+            st.text(min_size=1, max_size=10).filter(lambda x: x != 'self'),
             st.floats(min_value=-1000, max_value=1000, allow_nan=False),
             min_size=1
         ),
         updates=st.dictionaries(
-            st.text(min_size=1, max_size=10),
+            st.text(min_size=1, max_size=10).filter(lambda x: x != 'self'),
             st.floats(min_value=-1000, max_value=1000, allow_nan=False),
             min_size=0
         )

@@ -25,13 +25,11 @@ class MockModel:
 class TestCLISampling:
     """Tests for sampling CLI commands."""
 
-    @patch("importlib.import_module")
-    def test_sobol_command_basic(self, mock_import):
+    @patch("modelops_calabaria.cli.sampling.load_symbol")
+    def test_sobol_command_basic(self, mock_load_symbol):
         """Test basic Sobol study generation."""
         # Mock the model import
-        mock_module = MagicMock()
-        mock_module.TestModel = MockModel
-        mock_import.return_value = mock_module
+        mock_load_symbol.return_value = MockModel
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "test_study.json"
@@ -67,13 +65,11 @@ class TestCLISampling:
             assert "beta" in param_set["params"]
             assert "count" in param_set["params"]
 
-    @patch("importlib.import_module")
-    def test_grid_command_basic(self, mock_import):
+    @patch("modelops_calabaria.cli.sampling.load_symbol")
+    def test_grid_command_basic(self, mock_load_symbol):
         """Test basic Grid study generation."""
         # Mock the model import
-        mock_module = MagicMock()
-        mock_module.TestModel = MockModel
-        mock_import.return_value = mock_module
+        mock_load_symbol.return_value = MockModel
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "grid_study.json"
@@ -147,12 +143,10 @@ class TestCLISampling:
 
         assert exc_info.value.exit_code == 1
 
-    @patch("importlib.import_module")
-    def test_sobol_with_scrambling(self, mock_import):
+    @patch("modelops_calabaria.cli.sampling.load_symbol")
+    def test_sobol_with_scrambling(self, mock_load_symbol):
         """Test Sobol with scrambling enabled."""
-        mock_module = MagicMock()
-        mock_module.TestModel = MockModel
-        mock_import.return_value = mock_module
+        mock_load_symbol.return_value = MockModel
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "scrambled_study.json"
@@ -176,12 +170,10 @@ class TestCLISampling:
             assert study_data["metadata"]["scramble"] == True
             assert len(study_data["parameter_sets"]) == 16
 
-    @patch("importlib.import_module")
-    def test_grid_with_different_points(self, mock_import):
+    @patch("modelops_calabaria.cli.sampling.load_symbol")
+    def test_grid_with_different_points(self, mock_load_symbol):
         """Test Grid sampling with different grid points."""
-        mock_module = MagicMock()
-        mock_module.TestModel = MockModel
-        mock_import.return_value = mock_module
+        mock_load_symbol.return_value = MockModel
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "grid_3_study.json"

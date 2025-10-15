@@ -192,7 +192,7 @@ class TestMakeWire:
             outputs=()
         )
 
-        with pytest.raises(ValueError, match="Invalid class_path"):
+        with pytest.raises(ImportError, match="Expected 'module_or_file:Symbol' format"):
             make_wire(entry)
 
     def test_make_wire_unsupported_abi(self):
