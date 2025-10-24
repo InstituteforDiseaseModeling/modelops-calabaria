@@ -1,6 +1,6 @@
 # ModelOps-Calabaria
 
-[![Tests](https://github.com/vsbuffalo/modelops-calabaria/actions/workflows/tests.yml/badge.svg)](https://github.com/vsbuffalo/modelops-calabaria/actions/workflows/tests.yml)
+[![Tests](https://github.com/institutefordiseasemodeling/modelops-calabaria/actions/workflows/tests.yml/badge.svg)](https://github.com/institutefordiseasemodeling/modelops-calabaria/actions/workflows/tests.yml)
 
 A science framework for distributed epidemic modeling and calibration on ModelOps infrastructure.
 
@@ -19,12 +19,12 @@ It implements the contracts defined in `modelops-contracts` to bridge epidemic m
 ## Installation
 
 ```bash
-pip install git+https://github.com/vsbuffalo/modelops-calabaria.git
+pip install git+https://github.com/institutefordiseasemodeling/modelops-calabaria.git
 ```
 
 Or for development:
 ```bash
-git clone https://github.com/vsbuffalo/modelops-calabaria.git
+git clone https://github.com/institutefordiseasemodeling/modelops-calabaria.git
 cd modelops-calabaria
 pip install -e .
 ```
@@ -218,13 +218,13 @@ cb sampling grid "models.seir:MyModel" \
 
 Calabaria works seamlessly with the ModelOps ecosystem:
 
-- **[modelops-contracts](https://github.com/vsbuffalo/modelops-contracts)**: Protocol definitions
-- **[modelops-bundle](https://github.com/vsbuffalo/modelops-bundle)**: Model packaging
-- **[modelops](https://github.com/vsbuffalo/modelops)**: Infrastructure orchestration
+- **[modelops-contracts](https://github.com/institutefordiseasemodeling/modelops-contracts)**: Protocol definitions
+- **[modelops-bundle](https://github.com/institutefordiseasemodeling/modelops-bundle)**: Model packaging
+- **[modelops](https://github.com/institutefordiseasemodeling/modelops)**: Infrastructure orchestration
 
 ## Examples
 
-See the [ModelOps examples](https://github.com/vsbuffalo/modelops/tree/main/examples) for complete working models.
+See the [ModelOps examples](https://github.com/institutefordiseasemodeling/modelops/tree/main/examples) for complete working models.
 
 ## Development
 

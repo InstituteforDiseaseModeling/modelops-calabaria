@@ -206,7 +206,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "modelops-contracts", git = "https://github.com/vsbuffalo/modelops-contracts.git" },
+    { name = "modelops-contracts", git = "https://github.com/institutefordiseasemodeling/modelops-contracts.git" },
     { name = "polars", specifier = ">=1.33.1" },
     { name = "scipy", specifier = ">=1.16.2" },
     { name = "toml", specifier = ">=0.10.0" },
@@ -226,7 +226,7 @@ dev = [
 [[package]]
 name = "modelops-contracts"
 version = "0.1.0"
-source = { git = "https://github.com/vsbuffalo/modelops-contracts.git#ac6271c4eb748d729ad51cb868f92bf43d877133" }
+source = { git = "https://github.com/institutefordiseasemodeling/modelops-contracts.git#9d023bc513166dcdc207042a52183d63264c7605" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
