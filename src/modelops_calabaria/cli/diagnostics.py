@@ -53,11 +53,11 @@ def compute_dloss(df: pl.DataFrame) -> Tuple[pl.DataFrame, float]:
 
 
 def mle_row(df: pl.DataFrame, param_cols: List[str]) -> Tuple[np.ndarray, float, dict]:
-    """Find MLE (minimum loss estimate) row and extract parameters."""
+    """Find minimum loss row and extract parameters."""
     row = df.sort("loss").row(0, named=True)
-    x_mle = np.array([row[c] for c in param_cols], dtype=float)
+    x_opt = np.array([row[c] for c in param_cols], dtype=float)
     loss_val = float(row["loss"])
-    return x_mle, loss_val, row
+    return x_opt, loss_val, row
 
 
 def scaled_params(df: pl.DataFrame, param_cols: List[str]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -240,13 +240,13 @@ def try_pivot_pair_to_grid(
 def page_overview(pdf: PdfPages,
                   df: pl.DataFrame,
                   param_cols: List[str],
-                  x_mle: np.ndarray,
+                  x_opt: np.ndarray,
                   loss_min: float):
-    """Generate overview page with loss rank, distance plot, and MLE summary."""
+    """Generate overview page with loss rank, distance plot, and optimum summary."""
     y = df["dloss"].to_numpy()
     X_scaled, mins, rng = scaled_params(df, param_cols)
-    z_mle = (x_mle - mins) / rng
-    d = np.linalg.norm(X_scaled - z_mle[None, :], axis=1)
+    z_opt = (x_opt - mins) / rng
+    d = np.linalg.norm(X_scaled - z_opt[None, :], axis=1)
 
     fig = plt.figure(figsize=(11.5, 4.5))
     gs = fig.add_gridspec(1, 3, width_ratios=[1.2, 1.2, 1.0], wspace=0.25)
@@ -254,20 +254,20 @@ def page_overview(pdf: PdfPages,
     # Loss rank plot
     ax1 = fig.add_subplot(gs[0, 0])
     ax1.plot(np.sort(y), lw=1, color='darkblue')
-    ax1.set_title("Δloss Rank", fontsize=12, fontweight='bold')
+    ax1.set_title("Δloss Rank", fontsize=12, fontweight='bold', loc='center')
     ax1.set_xlabel("Rank")
     ax1.set_ylabel("Δloss")
     ax1.grid(True, alpha=0.3)
 
-    # Distance from MLE plot
+    # Distance from optimum plot
     ax2 = fig.add_subplot(gs[0, 1])
     ax2.scatter(d, y, s=8, alpha=0.4, c=y, cmap='viridis')
-    ax2.set_title("Δloss vs Distance from MLE", fontsize=12, fontweight='bold')
+    ax2.set_title("Δloss vs Distance from Optimum", fontsize=12, fontweight='bold', loc='center')
     ax2.set_xlabel("Scaled Euclidean Distance")
     ax2.set_ylabel("Δloss")
     ax2.grid(True, alpha=0.3)
 
-    # MLE summary table
+    # Optimum summary table
     ax3 = fig.add_subplot(gs[0, 2])
     ax3.axis("off")
 
@@ -275,18 +275,19 @@ def page_overview(pdf: PdfPages,
     rows = [("Min Loss", f"{loss_min:,.3f}")]
     for i, p in enumerate(param_cols):
         param_name = p.replace("param_", "")
-        rows.append((param_name, f"{x_mle[i]:.4g}"))
+        rows.append((param_name, f"{x_opt[i]:.4g}"))
 
     tbl = ax3.table(cellText=rows,
-                   colLabels=["Parameter", "MLE Value"],
+                   colLabels=["Parameter", "Optimum Value"],
                    loc="center",
                    cellLoc='left')
     tbl.scale(1.0, 1.3)
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(9)
-    ax3.set_title("MLE Summary", fontsize=12, fontweight='bold')
+    ax3.set_title("Optimum Summary", fontsize=12, fontweight='bold', loc='center')
 
     fig.suptitle("Optimization Overview", fontsize=14, fontweight='bold')
+    plt.tight_layout()
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
 
@@ -294,7 +295,7 @@ def page_overview(pdf: PdfPages,
 def page_profiles(pdf: PdfPages,
                   df: pl.DataFrame,
                   param_cols: List[str],
-                  x_mle: np.ndarray,
+                  x_opt: np.ndarray,
                   mins: np.ndarray,
                   rng: np.ndarray):
     """Generate grid of 1D parameter profiles."""
@@ -309,18 +310,18 @@ def page_profiles(pdf: PdfPages,
 
     for k, p in enumerate(param_cols):
         ax = axes[k]
-        gx, gy, (rx, ry) = profile_1d_clean(df, param_cols, p, x_mle, mins, rng)
+        gx, gy, (rx, ry) = profile_1d_clean(df, param_cols, p, x_opt, mins, rng)
 
         # Plot profile and raw points
         ax.plot(gx, gy, lw=2, color='darkblue', label='Profile')
         ax.scatter(rx, ry, s=8, alpha=0.2, color='gray', label='Data')
-        ax.axvline(x_mle[param_cols.index(p)], ls="--", lw=1, color='red', alpha=0.7, label='MLE')
+        ax.axvline(x_opt[param_cols.index(p)], ls="--", lw=1, color='red', alpha=0.7, label='Optimum')
 
         # χ² reference line for 95% CI (Δloss = 1.92 for 1 param)
         ax.axhline(1.92, ls=":", lw=1, color='black', alpha=0.5, label='95% CI')
 
         param_name = p.replace("param_", "")
-        ax.set_title(param_name, fontsize=11, fontweight='bold')
+        ax.set_title(param_name, fontsize=11, fontweight='bold', loc='center')
         ax.set_xlabel("Value")
         ax.set_ylabel("Δloss")
         ax.grid(True, alpha=0.3)
@@ -332,7 +333,8 @@ def page_profiles(pdf: PdfPages,
     for j in range(n, nrows * ncols):
         fig.delaxes(axes[j])
 
-    fig.suptitle("1D Parameter Profiles (conditioned at MLE)", fontsize=14, fontweight='bold')
+    fig.suptitle("1D Parameter Profiles (conditioned at optimum)", fontsize=14, fontweight='bold')
+    plt.tight_layout()
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
 
@@ -340,8 +342,9 @@ def page_profiles(pdf: PdfPages,
 def page_pair_contours(pdf: PdfPages,
                        df: pl.DataFrame,
                        param_cols: List[str],
-                       x_mle: np.ndarray,
-                       max_pairs: int = 6):
+                       x_opt: np.ndarray,
+                       max_pairs: int = 6,
+                       threshold: float = 0.0):
     """Generate 2D contour plots for informative parameter pairs."""
     pairs = choose_informative_pairs(df, param_cols, top_k_params=3)
     pairs = pairs[:max_pairs]
@@ -365,14 +368,27 @@ def page_pair_contours(pdf: PdfPages,
             if is_grid:
                 cs = ax.contourf(xa, xb, Z.T, levels=15, cmap='viridis', alpha=0.9)
                 ax.contour(xa, xb, Z.T, levels=15, colors='black', alpha=0.2, linewidths=0.5)
+
+                # Add threshold contour if specified
+                if threshold > 0:
+                    # Plot special contour at threshold
+                    ax.contour(xa, xb, Z.T, levels=[threshold], colors='red',
+                              linewidths=1.5, linestyles='solid', alpha=0.8)
+                    # Also shade the region below threshold
+                    ax.contourf(xa, xb, Z.T, levels=[0, threshold],
+                               colors=['red'], alpha=0.2)
             else:
                 cs = ax.tricontourf(xa, xb, Z, levels=15, cmap='viridis')
 
+                if threshold > 0:
+                    ax.tricontour(xa, xb, Z, levels=[threshold], colors='red',
+                                 linewidths=1.5, linestyles='solid', alpha=0.8)
+
             last_cs = cs
 
-            # Mark MLE
-            ax.scatter([x_mle[i]], [x_mle[j]], marker="*", s=200,
-                      color='red', edgecolor="white", linewidth=2, zorder=10)
+            # Mark optimum with smaller star
+            ax.scatter([x_opt[i]], [x_opt[j]], marker="*", s=150,
+                      color='red', edgecolor="white", linewidth=1, zorder=10)
 
             ax.set_xlabel(a.replace("param_", ""), fontsize=10)
             ax.set_ylabel(b.replace("param_", ""), fontsize=10)
@@ -382,7 +398,12 @@ def page_pair_contours(pdf: PdfPages,
         for k in range(len(chunk), len(axes)):
             fig.delaxes(axes[k])
 
-        fig.suptitle("2D Loss Surfaces (MLE marked with star)", fontsize=14, fontweight='bold')
+        title = "2D Loss Surfaces (optimum marked with star)"
+        if threshold > 0:
+            title += f"\nRed region: Δloss < {threshold:.1e}"
+        fig.suptitle(title, fontsize=14, fontweight='bold')
+        plt.tight_layout()
+
         if last_cs is not None:
             cbar = fig.colorbar(last_cs, ax=axes[:len(chunk)], fraction=0.02, pad=0.02)
             cbar.set_label('Δloss', rotation=270, labelpad=15)
@@ -394,6 +415,7 @@ def page_pair_contours(pdf: PdfPages,
 def generate_report(
     input_path: Path,
     output_path: Optional[Path] = None,
+    threshold: float = 0.0,
 ) -> Path:
     """
     Generate diagnostic report from ModelOps results.
@@ -429,10 +451,10 @@ def generate_report(
 
     # Compute derived quantities
     df, loss_min = compute_dloss(df)
-    x_mle, loss_val, mle_as_dict = mle_row(df, param_cols)
+    x_opt, loss_val, opt_as_dict = mle_row(df, param_cols)
     X_scaled, mins, rng = scaled_params(df, param_cols)
 
-    typer.echo(f"MLE loss: {loss_min:.3f}")
+    typer.echo(f"Minimum loss: {loss_min:.3f}")
     typer.echo(f"Generating diagnostic report...")
 
     # Create PDF
@@ -447,9 +469,9 @@ def generate_report(
         d['Creator'] = 'cb diagnostics report'
 
         # Generate pages
-        page_overview(pdf, df, param_cols, x_mle, loss_min)
-        page_profiles(pdf, df, param_cols, x_mle, mins, rng)
-        page_pair_contours(pdf, df, param_cols, x_mle, max_pairs=6)
+        page_overview(pdf, df, param_cols, x_opt, loss_min)
+        page_profiles(pdf, df, param_cols, x_opt, mins, rng)
+        page_pair_contours(pdf, df, param_cols, x_opt, max_pairs=6, threshold=threshold)
 
     file_size_kb = output_path.stat().st_size / 1024
     typer.echo(f"✓ Report saved to {output_path} ({file_size_kb:.1f} KB)")
@@ -469,11 +491,16 @@ def report_command(
         "--output", "-o",
         help="Output PDF path (defaults to <input>_diagnostic_report.pdf)"
     ),
+    threshold: float = typer.Option(
+        0.0,
+        "--threshold",
+        help="Threshold for highlighting low-loss regions in red (e.g., 1e-5 for numeric error)"
+    ),
 ) -> None:
     """Generate diagnostic report from ModelOps optimization results.
 
     Creates a comprehensive PDF report including:
-    - Overview with MLE summary and loss landscape
+    - Overview with optimum summary and loss landscape
     - 1D parameter profiles showing loss vs each parameter
     - 2D contour plots for informative parameter pairs
 
@@ -481,7 +508,7 @@ def report_command(
     'loss' column and 'param_*' parameter columns.
     """
     try:
-        generate_report(input_file, output)
+        generate_report(input_file, output, threshold=threshold)
     except Exception as e:
         typer.echo(f"Error generating report: {e}", err=True)
         raise typer.Exit(1)
