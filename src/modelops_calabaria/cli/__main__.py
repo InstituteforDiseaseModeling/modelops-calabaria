@@ -15,6 +15,7 @@ from .config import write_model_config, read_pyproject, validate_config
 from .verify import verify_all_models, print_verification_summary
 # Manifest functionality deprecated - use modelops-bundle register-model instead
 from .sampling import sobol_command, grid_command
+from .diagnostics import report_command
 
 # Create the main app
 app = typer.Typer(
@@ -27,10 +28,12 @@ app = typer.Typer(
 models_app = typer.Typer(help="Model discovery and export commands")
 # manifest_app deprecated - use modelops-bundle register-model instead
 sampling_app = typer.Typer(help="Generate simulation jobs from parameter sampling")
+diagnostics_app = typer.Typer(help="Diagnostic reports and analysis tools")
 
 app.add_typer(models_app, name="models")
 # app.add_typer(manifest_app, name="manifest") # Deprecated
 app.add_typer(sampling_app, name="sampling")
+app.add_typer(diagnostics_app, name="diagnostics")
 
 
 @models_app.command("discover")
@@ -205,6 +208,10 @@ def sampling_grid(
 ):
     """Generate SimulationStudy using Grid sampling."""
     grid_command(model_class, scenario, grid_points, output, seed, targets, n_replicates, project_root, no_cwd_import)
+
+
+# Add the diagnostics report command
+diagnostics_app.command("report")(report_command)
 
 
 @app.command("version")
