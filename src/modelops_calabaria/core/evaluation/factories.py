@@ -10,6 +10,7 @@ from .reduce import MeanGroupedByReplicate, MeanReducer
 def mean_of_per_replicate_mse(col: str) -> Evaluator:
     """
     Computes MSE per replicate, then returns the mean of those replicate-level losses.
+    WARNING: This is a *biased estimator*, and will penalize simulator variance across seeds.
 
     loss = mean( MSE(rep_0), MSE(rep_1), ... )
     """

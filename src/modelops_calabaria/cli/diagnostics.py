@@ -127,70 +127,76 @@ def profile_1d_clean(
     knn_other: int = 400,
     nbins: int = 120,
     x_span_pad: float = 0.0,
+    min_pts_per_x: int = 12,
+    widen_factor: float = 1.6,
 ) -> Tuple[np.ndarray, np.ndarray, Tuple[np.ndarray, np.ndarray]]:
     """
-    Generate clean 1D profile of Δloss vs focal parameter.
-
-    Uses KNN in other dimensions to condition near MLE, then applies
-    weighted local regression to produce smooth profile curves.
+    Robust 1D profile:
+    - KNN in other dims to stay near the MLE neighborhood.
+    - Adaptive HARD x-window (not quantile-on-weights) so we never 'see' the MLE when x is far.
+    - Binwise min, then gentle spline; anchored at (x_MLE, 0).
     """
     j = param_cols.index(focal)
     X = df.select(param_cols).to_numpy()
     y = df["dloss"].to_numpy().astype(float)
 
-    X_scaled = (X - mins) / rng
-    x0_scaled = (x_mle - mins) / rng
-    d_other = scaled_distance_other_dims(X_scaled, x0_scaled, drop_index=j)
+    # KNN in other dims
+    Xs = (X - mins) / np.where(rng > 0, rng, 1.0)
+    z0 = (x_mle - mins) / np.where(rng > 0, rng, 1.0)
+    d_other = scaled_distance_other_dims(Xs, z0, drop_index=j)
 
-    # KNN selection
     k = min(knn_other, len(y))
     idx = np.argsort(d_other)[:k]
-    x_sub = X[idx, j]
-    y_sub = y[idx]
-    d_sub = d_other[idx]
+    xk, yk = X[idx, j], y[idx]
 
-    # Grid for profile
-    x_min, x_max = x_sub.min(), x_sub.max()
-    pad = x_span_pad * (x_max - x_min)
-    xs = np.linspace(x_min - pad, x_max + pad, nbins)
+    # Choose x-grid and a *data-driven* half-window based on median spacing
+    ux = np.unique(np.sort(xk))
+    if len(ux) > 1:
+        dx_med = np.median(np.diff(ux))
+    else:
+        dx_med = max(np.ptp(xk) / 50, 1e-8)
+    half = max(1.5 * dx_med, 0.01 * (ux[-1] - ux[0]) if len(ux) > 0 else 1e-8)
 
-    # Window parameters
-    hx = 0.5 * (xs[1] - xs[0]) if len(xs) > 1 else 1e-6
-    r_other = np.max(d_sub) or 1.0
-
+    xs = np.linspace(xk.min(), xk.max(), nbins)
     prof_x, prof_y = [], []
-    u_other = d_sub / r_other
-    w_other = tri_cube(u_other)
 
     for xc in xs:
-        wx = np.exp(-0.5 * ((x_sub - xc) / (hx if hx > 0 else 1e-6)) ** 2)
-        w = wx * w_other
-
-        if w.max() <= 0:
+        h = half
+        # adapt window until we have enough points locally in x
+        for _ in range(6):  # cap expansions
+            mask = np.abs(xk - xc) <= h
+            if mask.sum() >= min_pts_per_x:
+                break
+            h *= widen_factor
+        if mask.sum() < max(3, min_pts_per_x // 2):
+            # insufficient coverage: skip this xc (avoids spurious zeros)
             continue
 
-        thr = np.quantile(w, 0.75)
-        sel = w >= thr
-        if not np.any(sel):
-            sel = w > 0
-
-        y_min = np.min(y_sub[sel] + 1e-10 * (x_sub[sel] - xc) ** 2)
+        # local conditional min
+        y_min = yk[mask].min()
         prof_x.append(xc)
         prof_y.append(max(0.0, y_min))
+
+    # Anchor at MLE (x_mle_j, 0)
+    x_mle_j = x_mle[j]
+    prof_x.append(x_mle_j)
+    prof_y.append(0.0)
 
     prof_x = np.asarray(prof_x)
     prof_y = np.asarray(prof_y)
 
-    # Smooth with spline
-    if len(prof_x) >= 5:
+    # Gentle smooth without overshooting below 0
+    if len(prof_x) >= 7:
         s = max(len(prof_x) * 0.002, 1e-9)
         try:
-            spl = UnivariateSpline(prof_x, prof_y, s=s)
+            order = np.argsort(prof_x)
+            spl = UnivariateSpline(prof_x[order], prof_y[order], s=s)
             prof_y = np.maximum(0.0, spl(prof_x))
         except Exception:
             pass
 
-    return prof_x, prof_y, (x_sub, y_sub)
+    # return grid, smooth profile, and the *local* points used for context
+    return prof_x, prof_y, (xk, yk)
 
 
 def try_pivot_pair_to_grid(
