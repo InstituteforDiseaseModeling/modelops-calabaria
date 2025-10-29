@@ -185,17 +185,39 @@ def profile_1d_clean(
     prof_x = np.asarray(prof_x)
     prof_y = np.asarray(prof_y)
 
-    # Gentle smooth without overshooting below 0
+    # Smooth (fit on sorted x), then evaluate on the same sorted grid
     if len(prof_x) >= 7:
         s = max(len(prof_x) * 0.002, 1e-9)
+        order = np.argsort(prof_x)
+        x_sorted = prof_x[order]
+        y_sorted = prof_y[order]
         try:
-            order = np.argsort(prof_x)
-            spl = UnivariateSpline(prof_x[order], prof_y[order], s=s)
-            prof_y = np.maximum(0.0, spl(prof_x))
+            spl = UnivariateSpline(x_sorted, y_sorted, s=s)
+            y_smooth = np.maximum(0.0, spl(x_sorted))
+            prof_x, prof_y = x_sorted, y_smooth
         except Exception:
-            pass
+            prof_x, prof_y = x_sorted, y_sorted
+    else:
+        # At least return in ascending x
+        order = np.argsort(prof_x)
+        prof_x, prof_y = prof_x[order], prof_y[order]
 
-    # return grid, smooth profile, and the *local* points used for context
+    # Insert NaNs to avoid drawing lines across unsupported gaps
+    if len(prof_x) > 2:
+        dx = np.diff(prof_x)
+        dxm = np.median(dx[dx > 0]) if np.any(dx > 0) else 0.0
+        if dxm > 0:
+            gap = 4 * dxm
+            xs, ys = [prof_x[0]], [prof_y[0]]
+            for i in range(1, len(prof_x)):
+                if prof_x[i] - prof_x[i-1] > gap:
+                    xs.extend([np.nan])
+                    ys.extend([np.nan])  # break the polyline
+                xs.append(prof_x[i])
+                ys.append(prof_y[i])
+            prof_x, prof_y = np.array(xs), np.array(ys)
+
+    # Return (sorted, gap-broken) profile and the local KNN points used
     return prof_x, prof_y, (xk, yk)
 
 
