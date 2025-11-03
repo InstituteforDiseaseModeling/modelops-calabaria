@@ -158,6 +158,7 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService) -> Non
         # Handle potential failures in gather
         try:
             results = sim_service.gather([f for _, f in futures])
+            logger.info(f"Gathered {len(results)} results, types: {[type(r).__name__ for r in results]}")
         except Exception as e:
             logger.error(f"Failed to gather results: {e}")
             # Create failed results for all parameter sets
@@ -176,6 +177,7 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService) -> Non
             for (params, _), result in zip(param_future_pairs, results):
                 # Handle individual result failures
                 if isinstance(result, Exception):
+                    logger.error(f"Param {params.param_id[:8]}: Got Exception: {type(result).__name__}: {str(result)[:200]}")
                     trial_result = TrialResult(
                         param_id=params.param_id,
                         loss=float("inf"),
