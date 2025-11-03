@@ -291,16 +291,20 @@ def convert_to_trial_result(
     Returns:
         TrialResult for the algorithm
     """
-    # Check if result is an AggregationReturn (has loss attribute)
-    if hasattr(result, "loss") and hasattr(result, "aggregate_metrics"):
+    # Log what we actually got for debugging
+    logger.debug(f"Converting result of type {type(result).__name__} with attrs: {dir(result) if hasattr(result, '__dict__') else 'N/A'}")
+
+    # Check if result is an AggregationReturn (has loss and aggregation_id attributes)
+    if hasattr(result, "loss") and hasattr(result, "aggregation_id"):
         # AggregationReturn from target evaluation
         return TrialResult(
             param_id=params.param_id,
             loss=float(result.loss),
             status=TrialStatus.COMPLETED,
             diagnostics={
-                "aggregate_metrics": result.aggregate_metrics,
+                "aggregation_id": result.aggregation_id,
                 "n_replicates": result.n_replicates if hasattr(result, "n_replicates") else 1,
+                "target_diagnostics": result.diagnostics if hasattr(result, "diagnostics") else {},
             },
         )
     elif hasattr(result, "outputs"):
