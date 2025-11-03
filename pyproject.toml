@@ -13,6 +13,7 @@ dependencies = [
  "scipy>=1.16.2",
  "matplotlib>=3.10.7",
  "pyarrow>=22.0.0",
+ "optuna>=3.0.0",
 ]
 
 [build-system]
@@ -27,6 +28,10 @@ cb = "modelops_calabaria.cli.__main__:cli_main"
 
 [project.entry-points."modelops.wire"]
 execute = "modelops_calabaria.modelops_wire:wire_function"
+calibration = "modelops_calabaria.calibration.wire:calibration_wire"
+
+[project.entry-points."modelops.algorithms"]
+optuna = "modelops_calabaria.calibration.optuna_adapter:OptunaAdapter"
 
 [tool.hatch.metadata]
 allow-direct-references = true

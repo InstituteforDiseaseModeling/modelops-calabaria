@@ -43,6 +43,13 @@ from .sampling import (
     SobolSampler,
 )
 
+# Calibration
+from .calibration.builders import (
+    CalibrationSpecBuilder,
+    OptunaCalibrationBuilder,
+    ABCCalibrationBuilder,
+)
+
 # Wire Protocol (advanced users)
 from .wire_protocol import (
     WireABI,
@@ -109,6 +116,11 @@ __all__ = [
     "SamplingStrategy",
     "GridSampler",
     "SobolSampler",
+
+    # Calibration
+    "CalibrationSpecBuilder",
+    "OptunaCalibrationBuilder",
+    "ABCCalibrationBuilder",
 
     # Wire Protocol
     "WireABI",
