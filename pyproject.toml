@@ -28,7 +28,6 @@ cb = "modelops_calabaria.cli.__main__:cli_main"
 
 [project.entry-points."modelops.wire"]
 execute = "modelops_calabaria.modelops_wire:wire_function"
-calibration = "modelops_calabaria.calibration.wire:calibration_wire"
 
 [project.entry-points."modelops.algorithms"]
 optuna = "modelops_calabaria.calibration.optuna_adapter:OptunaAdapter"
