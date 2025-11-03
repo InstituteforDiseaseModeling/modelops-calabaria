@@ -154,19 +154,44 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService) -> Non
         # Gather results
         logger.info("Gathering simulation results...")
         param_future_pairs = futures
-        results = sim_service.gather([f for _, f in futures])
 
-        # Convert to TrialResults
-        trial_results = []
-        for (params, _), result in zip(param_future_pairs, results):
-            trial_result = convert_to_trial_result(params, result)
-            trial_results.append(trial_result)
+        # Handle potential failures in gather
+        try:
+            results = sim_service.gather([f for _, f in futures])
+        except Exception as e:
+            logger.error(f"Failed to gather results: {e}")
+            # Create failed results for all parameter sets
+            trial_results = []
+            for params, _ in param_future_pairs:
+                trial_result = TrialResult(
+                    param_id=params.param_id,
+                    loss=float("inf"),
+                    status=TrialStatus.FAILED,
+                    diagnostics={"error": f"Aggregation failed: {str(e)[:200]}"},
+                )
+                trial_results.append(trial_result)
+        else:
+            # Convert successful results to TrialResults
+            trial_results = []
+            for (params, _), result in zip(param_future_pairs, results):
+                # Handle individual result failures
+                if isinstance(result, Exception):
+                    trial_result = TrialResult(
+                        param_id=params.param_id,
+                        loss=float("inf"),
+                        status=TrialStatus.FAILED,
+                        diagnostics={"error": str(result)[:200]},
+                    )
+                else:
+                    trial_result = convert_to_trial_result(params, result)
+                trial_results.append(trial_result)
 
-            # Log result
+        # Log results
+        for trial_result in trial_results:
             if trial_result.status == TrialStatus.COMPLETED:
-                logger.debug(f"Param {params.param_id[:8]}: loss = {trial_result.loss:.6f}")
+                logger.debug(f"Param {trial_result.param_id[:8]}: loss = {trial_result.loss:.6f}")
             else:
-                logger.warning(f"Param {params.param_id[:8]}: {trial_result.status}")
+                logger.warning(f"Param {trial_result.param_id[:8]}: {trial_result.status}")
 
         # Tell algorithm about results
         adapter.tell(trial_results)
