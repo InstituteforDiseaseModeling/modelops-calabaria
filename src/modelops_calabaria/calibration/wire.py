@@ -292,9 +292,44 @@ def convert_to_trial_result(
         TrialResult for the algorithm
     """
     # Log what we actually got for debugging
-    logger.debug(f"Converting result of type {type(result).__name__} with attrs: {dir(result) if hasattr(result, '__dict__') else 'N/A'}")
+    logger.debug(f"Converting result of type {type(result).__name__}")
 
-    # Check if result is an AggregationReturn (has loss and aggregation_id attributes)
+    # Handle dictionary results (common when deserialized from JSON)
+    if isinstance(result, dict):
+        if "loss" in result and "aggregation_id" in result:
+            # AggregationReturn as dictionary from target evaluation
+            return TrialResult(
+                param_id=params.param_id,
+                loss=float(result["loss"]),
+                status=TrialStatus.COMPLETED,
+                diagnostics={
+                    "aggregation_id": result.get("aggregation_id"),
+                    "n_replicates": result.get("n_replicates", 1),
+                    "target_diagnostics": result.get("diagnostics", {}),
+                },
+            )
+        elif "outputs" in result:
+            # Raw SimReturn as dictionary without target evaluation
+            loss = None
+            if "loss" in result.get("outputs", {}):
+                loss = float(result["outputs"]["loss"])
+
+            if loss is not None:
+                return TrialResult(
+                    param_id=params.param_id,
+                    loss=loss,
+                    status=TrialStatus.COMPLETED,
+                    diagnostics={"outputs": list(result.get("outputs", {}).keys())},
+                )
+            else:
+                return TrialResult(
+                    param_id=params.param_id,
+                    loss=float("inf"),
+                    status=TrialStatus.FAILED,
+                    diagnostics={"error": "No loss computed in outputs"},
+                )
+
+    # Check if result is an AggregationReturn object (has loss and aggregation_id attributes)
     if hasattr(result, "loss") and hasattr(result, "aggregation_id"):
         # AggregationReturn from target evaluation
         return TrialResult(
