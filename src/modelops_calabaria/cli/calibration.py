@@ -16,7 +16,7 @@ def optuna_command(
     observed_data: str = typer.Argument(..., help="Path to observed data file (parquet/csv)"),
     parameters: str = typer.Argument(..., help="Parameters to calibrate as name:lower:upper,... (e.g., beta:0.01:0.2,dur_inf:3:10)"),
     scenario: str = typer.Option("baseline", "--scenario", "-s", help="Scenario name"),
-    max_iterations: int = typer.Option(10**6, "--max-iterations", "-m", help="Maximum ask/tell loop iterations (safety cap)"),
+    max_iterations: int = typer.Option(1000000, "--max-iterations", "-m", help="Maximum ask/tell loop iterations (safety cap)"),
     max_trials: int = typer.Option(100, "--max-trials", help="Maximum Optuna trials"),
     batch_size: int = typer.Option(4, "--batch-size", "-b", help="Number of parallel evaluations"),
     n_replicates: int = typer.Option(3, "--n-replicates", "-r", help="Replicates per parameter set"),
