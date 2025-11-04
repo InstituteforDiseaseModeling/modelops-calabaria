@@ -221,7 +221,7 @@ def calibration_optuna(
     observed_data: str = typer.Argument(..., help="Path to observed data"),
     parameters: str = typer.Argument(..., help="Parameters as name:lower:upper,..."),
     scenario: str = typer.Option("baseline", "--scenario", "-s"),
-    max_iterations: int = typer.Option(100, "--max-iterations", "-m"),
+    max_iterations: int = typer.Option(1000000, "--max-iterations", "-m"),
     max_trials: int = typer.Option(100, "--max-trials"),
     batch_size: int = typer.Option(4, "--batch-size", "-b"),
     n_replicates: int = typer.Option(3, "--n-replicates", "-r"),
