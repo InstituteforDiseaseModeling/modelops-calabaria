@@ -31,7 +31,7 @@ from modelops_calabaria.calibration.factory import (
 logger = logging.getLogger(__name__)
 
 
-def calibration_wire(job: CalibrationJob, sim_service: SimulationService) -> None:
+def calibration_wire(job: CalibrationJob, sim_service: SimulationService, prov_store=None) -> None:
     """Main entry point for calibration jobs in K8s pods.
 
     This function orchestrates the ask/tell loop between an optimization
@@ -41,6 +41,7 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService) -> Non
     Args:
         job: CalibrationJob specification
         sim_service: Simulation service for running model evaluations
+        prov_store: Optional ProvenanceStore for Azure uploads
     """
     logger.info(f"Starting calibration job {job.job_id}")
     logger.info(f"Algorithm: {job.algorithm}")
@@ -212,7 +213,7 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService) -> Non
             )
 
     # Save final results
-    save_calibration_results(job, adapter)
+    save_calibration_results(job, adapter, prov_store=prov_store)
 
     logger.info(f"Calibration job {job.job_id} completed after {iteration} iterations")
 
@@ -413,12 +414,13 @@ def check_convergence(
     return False
 
 
-def save_calibration_results(job: CalibrationJob, adapter: AlgorithmAdapter) -> None:
-    """Save final calibration results.
+def save_calibration_results(job: CalibrationJob, adapter: AlgorithmAdapter, prov_store=None) -> None:
+    """Save final calibration results and upload to Azure.
 
     Args:
         job: Calibration job specification
         adapter: Algorithm adapter with results
+        prov_store: Optional ProvenanceStore for Azure uploads
     """
     try:
         # Get best parameters if available
@@ -439,15 +441,29 @@ def save_calibration_results(job: CalibrationJob, adapter: AlgorithmAdapter) -> 
             "summary": summary,
         }
 
-        # Write to file (in production, would upload to blob storage)
-        output_dir = Path("/tmp/calibration_results")
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Write to local directory first (matches simulation job pattern)
+        local_dir = Path("/tmp/modelops/provenance/token/v1/views/jobs") / job.job_id / "calibration"
+        local_dir.mkdir(parents=True, exist_ok=True)
 
-        output_file = output_dir / f"{job.job_id}.json"
+        output_file = local_dir / "summary.json"
         with open(output_file, "w") as f:
             json.dump(results, f, indent=2)
 
         logger.info(f"Saved calibration results to {output_file}")
+
+        # Upload to Azure if ProvenanceStore is available (matches simulation job pattern)
+        if prov_store and hasattr(prov_store, '_azure_backend') and prov_store._azure_backend:
+            try:
+                logger.info("Uploading calibration results to Azure...")
+
+                # Upload the calibration directory
+                remote_prefix = f"views/jobs/{job.job_id}/calibration"
+                prov_store._upload_to_azure(local_dir, remote_prefix)
+
+                logger.info(f"Calibration results uploaded to Azure: {remote_prefix}")
+            except Exception as e:
+                logger.error(f"Failed to upload calibration results to Azure: {e}")
+                # Continue without upload - results are still saved locally
 
     except Exception as e:
         logger.error(f"Failed to save calibration results: {e}")
