@@ -369,7 +369,10 @@ def convert_to_trial_result(
                 param_id=params.param_id,
                 loss=float("inf"),
                 status=TrialStatus.FAILED,
-                diagnostics={"error": "No loss computed"},
+                diagnostics={
+                    "error": "No loss computed",
+                    "outputs": list(result.outputs.keys())
+                },
             )
     else:
         # Unknown result type or error
