@@ -51,12 +51,6 @@ def create_algorithm_adapter(
         logger.info("Created OptunaAdapter")
         return adapter
 
-    elif algorithm_type == "abc" or algorithm_type == "abc-smc":
-        # Placeholder for ABC-SMC adapter
-        raise NotImplementedError(
-            "ABC-SMC adapter not yet implemented. Use 'optuna' for now."
-        )
-
     elif algorithm_type == "mcmc":
         # Placeholder for MCMC adapter
         raise NotImplementedError(

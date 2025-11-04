@@ -9,7 +9,6 @@ from modelops_calabaria.calibration.factory import create_algorithm_adapter
 from modelops_calabaria.calibration.builders import (
     CalibrationSpecBuilder,
     OptunaCalibrationBuilder,
-    ABCCalibrationBuilder,
 )
 
 __all__ = [
@@ -18,5 +17,4 @@ __all__ = [
     "create_algorithm_adapter",
     "CalibrationSpecBuilder",
     "OptunaCalibrationBuilder",
-    "ABCCalibrationBuilder",
 ]

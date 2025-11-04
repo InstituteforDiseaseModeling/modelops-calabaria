@@ -47,7 +47,6 @@ from .sampling import (
 from .calibration.builders import (
     CalibrationSpecBuilder,
     OptunaCalibrationBuilder,
-    ABCCalibrationBuilder,
 )
 
 # Wire Protocol (advanced users)
@@ -120,7 +119,6 @@ __all__ = [
     # Calibration
     "CalibrationSpecBuilder",
     "OptunaCalibrationBuilder",
-    "ABCCalibrationBuilder",
 
     # Wire Protocol
     "WireABI",

@@ -15,7 +15,7 @@ from .config import write_model_config, read_pyproject, validate_config
 from .verify import verify_all_models, print_verification_summary
 # Manifest functionality deprecated - use modelops-bundle register-model instead
 from .sampling import sobol_command, grid_command
-from .calibration import optuna_command, abc_command
+from .calibration import optuna_command
 from .diagnostics import report_command
 
 # Create the main app
@@ -180,86 +180,12 @@ def models_verify(
 # and modelops-bundle's registry system for provenance tracking
 
 
-@sampling_app.command("sobol")
-def sampling_sobol(
-    model_class: str = typer.Argument(..., help="Model class from manifest"),
-    scenario: str = typer.Option("baseline", "--scenario", "-s"),
-    n_samples: int = typer.Option(100, "--n-samples", "-n"),
-    output: str = typer.Option("study.json", "--output", "-o"),
-    seed: Optional[int] = typer.Option(42, "--seed"),
-    scramble: bool = typer.Option(True, "--scramble/--no-scramble"),
-    targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated target entrypoints"),
-    n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
-    project_root: Optional[str] = typer.Option(None, "--project-root", help="Project root to add to sys.path (default: cwd)"),
-    no_cwd_import: bool = typer.Option(False, "--no-cwd-import", help="Do not add project root to sys.path during import"),
-):
-    """Generate SimulationStudy using Sobol sampling."""
-    sobol_command(model_class, scenario, n_samples, output, seed, scramble, targets, n_replicates, project_root, no_cwd_import)
+# Register sampling commands directly from implementation modules
+sampling_app.command("sobol")(sobol_command)
+sampling_app.command("grid")(grid_command)
 
-
-@sampling_app.command("grid")
-def sampling_grid(
-    model_class: str = typer.Argument(..., help="Model class from manifest"),
-    scenario: str = typer.Option("baseline", "--scenario", "-s"),
-    grid_points: int = typer.Option(10, "--grid-points", "-g"),
-    output: str = typer.Option("study.json", "--output", "-o"),
-    seed: Optional[int] = typer.Option(42, "--seed"),
-    targets: Optional[str] = typer.Option(None, "--targets", "-t", help="Comma-separated target entrypoints"),
-    n_replicates: int = typer.Option(1, "--n-replicates", "-r", help="Number of replicates per parameter set"),
-    project_root: Optional[str] = typer.Option(None, "--project-root", help="Project root to add to sys.path (default: cwd)"),
-    no_cwd_import: bool = typer.Option(False, "--no-cwd-import", help="Do not add project root to sys.path during import"),
-):
-    """Generate SimulationStudy using Grid sampling."""
-    grid_command(model_class, scenario, grid_points, output, seed, targets, n_replicates, project_root, no_cwd_import)
-
-
-# Add the calibration commands
-@calibration_app.command("optuna")
-def calibration_optuna(
-    model_class: str = typer.Argument(..., help="Model class from manifest"),
-    targets: str = typer.Argument(..., help="Target entrypoints"),
-    observed_data: str = typer.Argument(..., help="Path to observed data"),
-    parameters: str = typer.Argument(..., help="Parameters as name:lower:upper,..."),
-    scenario: str = typer.Option("baseline", "--scenario", "-s"),
-    max_iterations: int = typer.Option(1000000, "--max-iterations", "-m"),
-    max_trials: int = typer.Option(100, "--max-trials"),
-    batch_size: int = typer.Option(4, "--batch-size", "-b"),
-    n_replicates: int = typer.Option(3, "--n-replicates", "-r"),
-    sampler: str = typer.Option("tpe", "--sampler"),
-    n_startup_trials: int = typer.Option(10, "--n-startup-trials"),
-    output: str = typer.Option("calibration_spec.json", "--output", "-o"),
-    project_root: Optional[str] = typer.Option(None, "--project-root"),
-    no_cwd_import: bool = typer.Option(False, "--no-cwd-import"),
-):
-    """Generate CalibrationSpec using Optuna optimization."""
-    optuna_command(
-        model_class, targets, observed_data, parameters, scenario,
-        max_iterations, max_trials, batch_size, n_replicates,
-        sampler, n_startup_trials, output, project_root, no_cwd_import
-    )
-
-
-@calibration_app.command("abc")
-def calibration_abc(
-    model_class: str = typer.Argument(..., help="Model class from manifest"),
-    targets: str = typer.Argument(..., help="Target entrypoints"),
-    observed_data: str = typer.Argument(..., help="Path to observed data"),
-    parameters: str = typer.Argument(..., help="Parameters as name:lower:upper,..."),
-    scenario: str = typer.Option("baseline", "--scenario", "-s"),
-    max_iterations: int = typer.Option(10, "--max-iterations", "-m"),
-    particles: int = typer.Option(1000, "--particles", "-p"),
-    epsilon_schedule: str = typer.Option("10,5,2,1", "--epsilon-schedule"),
-    output: str = typer.Option("calibration_spec.json", "--output", "-o"),
-    project_root: Optional[str] = typer.Option(None, "--project-root"),
-    no_cwd_import: bool = typer.Option(False, "--no-cwd-import"),
-):
-    """Generate CalibrationSpec using ABC-SMC algorithm."""
-    abc_command(
-        model_class, targets, observed_data, parameters, scenario,
-        max_iterations, particles, epsilon_schedule, output,
-        project_root, no_cwd_import
-    )
-
+# Register calibration commands directly from implementation modules
+calibration_app.command("optuna")(optuna_command)
 
 # Add the diagnostics report command
 diagnostics_app.command("report")(report_command)
