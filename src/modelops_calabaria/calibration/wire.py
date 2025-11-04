@@ -66,10 +66,18 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService, prov_s
         config=job.algorithm_config,
     )
 
-    # Initialize with job-specific config
+    # Initialize with job-specific config, injecting max_iterations as max_trials
+    # This ensures max_iterations is the single source of truth
+    init_config = dict(job.algorithm_config)
+    if "max_trials" in init_config and init_config["max_trials"] != job.max_iterations:
+        logger.warning(
+            f"Ignoring algorithm_config.max_trials ({init_config['max_trials']}) "
+            f"in favor of job.max_iterations ({job.max_iterations})"
+        )
+    init_config["max_trials"] = job.max_iterations
     adapter.initialize(
         job_id=job.job_id,
-        config=job.algorithm_config,
+        config=init_config,
     )
 
     # Connect to pre-provisioned infrastructure
