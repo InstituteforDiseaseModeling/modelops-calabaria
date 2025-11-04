@@ -16,7 +16,7 @@ def optuna_command(
     observed_data: str = typer.Argument(..., help="Path to observed data file (parquet/csv)"),
     parameters: str = typer.Argument(..., help="Parameters to calibrate as name:lower:upper,... (e.g., beta:0.01:0.2,dur_inf:3:10)"),
     scenario: str = typer.Option("baseline", "--scenario", "-s", help="Scenario name"),
-    max_iterations: int = typer.Option(100, "--max-iterations", "-m", help="Maximum optimization iterations"),
+    max_iterations: int = typer.Option(10**6, "--max-iterations", "-m", help="Maximum ask/tell loop iterations (safety cap)"),
     max_trials: int = typer.Option(100, "--max-trials", help="Maximum Optuna trials"),
     batch_size: int = typer.Option(4, "--batch-size", "-b", help="Number of parallel evaluations"),
     n_replicates: int = typer.Option(3, "--n-replicates", "-r", help="Replicates per parameter set"),
@@ -60,6 +60,19 @@ def optuna_command(
     observed_path = Path(observed_data)
     if not observed_path.exists():
         typer.echo(f"Error: Observed data file not found: {observed_data}", err=True)
+        raise typer.Exit(1)
+
+    # Validate max_trials doesn't exceed max_iterations
+    if max_trials > max_iterations:
+        typer.echo(
+            f"Error: max_trials ({max_trials}) exceeds max_iterations ({max_iterations}).\n"
+            f"Either:\n"
+            f"  1. Increase --max-iterations to at least {max_trials}, or\n"
+            f"  2. Decrease --max-trials to at most {max_iterations}.\n\n"
+            f"Note: max_iterations is a safety cap on the ask/tell loop, while max_trials\n"
+            f"is the algorithm-specific limit for Optuna.",
+            err=True
+        )
         raise typer.Exit(1)
 
     # Convert model path format
