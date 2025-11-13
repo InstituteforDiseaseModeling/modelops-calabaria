@@ -182,3 +182,100 @@ def test_wire_target_function_invalid_entrypoint():
     # Test missing colon
     with pytest.raises(ValueError, match="Invalid entrypoint format"):
         wire_target_function("no_colon", sim_outputs)
+
+
+def test_wire_target_function_with_replicates():
+    """Test the wire function with multiple replicates."""
+    from modelops_calabaria.targets import wire_target_function_with_replicates
+    from dataclasses import dataclass
+
+    # Create a temporary module with targets
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target_file = Path(tmpdir) / "test_replicate_targets.py"
+        target_file.write_text("""
+import polars as pl
+from modelops_calabaria.core.target import Target, Targets
+from modelops_calabaria.core.alignment import JoinAlignment
+
+class TestEval:
+    def evaluate(self, aligned):
+        from modelops_calabaria.core.evaluation.base import TargetEvaluation
+        # Compute MSE for this test (alignment adds __sim and __obs suffixes)
+        mse = ((aligned.data["y__sim"] - aligned.data["y__obs"]) ** 2).mean()
+        return TargetEvaluation(
+            name="replicate_test",
+            loss=float(mse),
+            weight=1.0,
+            weighted_loss=float(mse)
+        )
+    def parameters(self):
+        return None
+
+def get_targets():
+    observed = pl.DataFrame({"t": [1, 2], "y": [10, 20]})
+    target = Target(
+        model_output="sim_output",
+        data=observed,
+        alignment=JoinAlignment(on_cols="t", mode="exact"),
+        evaluation=TestEval(),
+        weight=1.0
+    )
+    return Targets(targets=[target])
+""")
+
+        # Add tmpdir to Python path
+        import sys
+        sys.path.insert(0, tmpdir)
+
+        try:
+            # Create mock SimReturn objects for 3 replicates with different losses
+            @dataclass
+            class MockSimReturn:
+                outputs: dict
+
+            # Replicate 1: loss will be 0.5 (y=[10.5, 19.5])
+            sim_df1 = pl.DataFrame({"t": [1, 2], "y": [10.5, 19.5]})
+            buffer1 = io.BytesIO()
+            sim_df1.write_ipc(buffer1)
+
+            # Replicate 2: loss will be 2.0 (y=[12, 18])
+            sim_df2 = pl.DataFrame({"t": [1, 2], "y": [12, 18]})
+            buffer2 = io.BytesIO()
+            sim_df2.write_ipc(buffer2)
+
+            # Replicate 3: loss will be 0.5 (y=[9.5, 20.5])
+            sim_df3 = pl.DataFrame({"t": [1, 2], "y": [9.5, 20.5]})
+            buffer3 = io.BytesIO()
+            sim_df3.write_ipc(buffer3)
+
+            sim_returns = [
+                MockSimReturn(outputs={"sim_output": buffer1.getvalue()}),
+                MockSimReturn(outputs={"sim_output": buffer2.getvalue()}),
+                MockSimReturn(outputs={"sim_output": buffer3.getvalue()}),
+            ]
+
+            # Call wire function with replicates
+            result = wire_target_function_with_replicates(
+                "test_replicate_targets:get_targets",
+                sim_returns
+            )
+
+            # Check structure
+            assert "total_loss" in result
+            assert "target_losses" in result
+            assert "per_replicate_losses" in result
+
+            # Check per-replicate losses
+            assert len(result["per_replicate_losses"]) == 3
+            assert all(isinstance(loss, float) for loss in result["per_replicate_losses"])
+
+            # Check aggregated loss (mean of replicates)
+            expected_mean = sum(result["per_replicate_losses"]) / 3
+            assert abs(result["total_loss"] - expected_mean) < 0.001
+
+            # Check target losses
+            assert "replicate_test" in result["target_losses"]
+
+        finally:
+            # Clean up sys.path
+            sys.path.remove(tmpdir)
