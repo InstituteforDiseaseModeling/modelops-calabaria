@@ -244,3 +244,7 @@ mypy src/modelops_calabaria
 MIT
 
 
+
+## Documentation
+
+Design docs live under [`docs/`](docs/). See [`docs/index.md`](docs/index.md) for the curated list of active specs plus the archived planning notes.
