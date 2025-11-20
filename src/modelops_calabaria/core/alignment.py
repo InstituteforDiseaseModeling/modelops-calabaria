@@ -163,13 +163,19 @@ class AsofJoin:
             {c: f"{c}{SUFFIX_OBS}" for c in observed.columns if c not in keep_obs}
         )
 
-        joined = obs_renamed.join_asof(
-            sim_renamed,
+        sort_columns = list(self.by) + [self.on_column] if self.by else [self.on_column]
+        obs_sorted = obs_renamed.sort(sort_columns)
+        sim_sorted = sim_renamed.sort(sort_columns)
+
+        check_sorted = self.by is None
+
+        joined = obs_sorted.join_asof(
+            sim_sorted,
             on=self.on_column,
             by=self.by,
             strategy=self.strategy,
             coalesce=False,
-            check_sortedness=False,
+            check_sortedness=check_sorted,
         )
         return AlignedData(data=joined, on_cols=self.on)
 

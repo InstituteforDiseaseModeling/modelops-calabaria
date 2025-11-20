@@ -1,8 +1,10 @@
 """Tests for calibration wire function."""
 
-import pytest
-from unittest.mock import MagicMock, patch, call
+import math
 import os
+from unittest.mock import MagicMock, patch, call
+
+import pytest
 
 from modelops_contracts import (
     CalibrationJob,
@@ -55,9 +57,10 @@ class TestCalibrationWire:
         )
 
         assert seed_info.base_seed == 42
-        assert seed_info.trial_seed != 42  # Should be hashed
+        assert seed_info.trial_seed == 183415352
         assert len(seed_info.replicate_seeds) == 3
         assert all(isinstance(s, int) for s in seed_info.replicate_seeds)
+        assert seed_info.replicate_seeds == (2068545870, 1805355463, 1722438088)
 
         # Test determinism - same param_id should give same seeds
         seed_info2 = generate_seed_info("abc123", 42, 3)
@@ -96,8 +99,19 @@ class TestCalibrationWire:
         trial_result = convert_to_trial_result(params, sim_result)
 
         assert trial_result.param_id == params.param_id
+        assert math.isnan(trial_result.loss)
         assert trial_result.status == TrialStatus.FAILED  # No loss available
         assert trial_result.diagnostics.get("outputs") == ["trajectories", "metrics"]
+
+    def test_convert_to_trial_result_dict_without_loss(self):
+        params = UniqueParameterSet.from_dict({"gamma": 0.2})
+        raw_dict = {"outputs": {"metrics": 5}}
+
+        trial_result = convert_to_trial_result(params, raw_dict)
+
+        assert trial_result.status == TrialStatus.FAILED
+        assert math.isnan(trial_result.loss)
+        assert trial_result.diagnostics["error"] == "No loss provided in outputs"
 
     def test_check_convergence_max_loss(self):
         """Test convergence based on max_loss threshold."""
@@ -159,33 +173,67 @@ class TestCalibrationWire:
         mock_adapter.ask.return_value = [mock_param_set, mock_param_set]
         mock_create_adapter.return_value = mock_adapter
 
-        # Run calibration wire
-        with patch("modelops_calabaria.calibration.wire.get_connection_info") as mock_conn:
-            mock_conn.return_value = {"POSTGRES_URL": "postgresql://test"}
-            calibration_wire(job, mock_sim_service)
-
-        # Verify adapter was initialized
-        mock_adapter.initialize.assert_called_once_with(
-            job_id="test_job",
-            config=job.algorithm_config,
+    @patch("modelops_calabaria.calibration.wire.create_algorithm_adapter")
+    @patch("modelops_calabaria.calibration.wire.save_calibration_results")
+    def test_calibration_wire_multi_target_combines_results(self, mock_save, mock_create_adapter):
+        job = CalibrationJob(
+            job_id="multi_target_job",
+            bundle_ref="sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            algorithm="optuna",
+            target_spec=TargetSpec(
+                data={"target_entrypoints": ["targets/A", "targets/B"]},
+                loss_function="mse",
+            ),
+            max_iterations=1,
+            convergence_criteria={},
+            algorithm_config={
+                "max_trials": 1,
+                "batch_size": 1,
+                "n_replicates": 2,
+                "parameter_specs": {"beta": {"lower": 0.1, "upper": 0.9}},
+            },
         )
 
-        # Verify infrastructure was connected
-        mock_adapter.connect_infrastructure.assert_called_once()
+        mock_sim_service = MagicMock()
+        future_a = MagicMock(name="future_a")
+        future_b = MagicMock(name="future_b")
+        mock_sim_service.submit_replicate_set.side_effect = [future_a, future_b]
 
-        # Verify ask was called
-        mock_adapter.ask.assert_called_with(n=2)
+        agg_a = MagicMock()
+        agg_a.loss = 0.1
+        agg_a.aggregation_id = "agg-a"
+        agg_a.n_replicates = 2
+        agg_a.diagnostics = {"target": "A"}
 
-        # Verify simulations were submitted
+        agg_b = MagicMock()
+        agg_b.loss = 0.3
+        agg_b.aggregation_id = "agg-b"
+        agg_b.n_replicates = 2
+        agg_b.diagnostics = {"target": "B"}
+
+        mock_sim_service.gather.return_value = [agg_a, agg_b]
+
+        mock_adapter = MagicMock()
+        mock_adapter.finished.side_effect = [False, True]
+        mock_param_set = UniqueParameterSet.from_dict({"beta": 0.5})
+        mock_adapter.ask.return_value = [mock_param_set]
+        mock_create_adapter.return_value = mock_adapter
+
+        calibration_wire(job, mock_sim_service, prov_store=None)
+
+        # Ensure both targets submitted
         assert mock_sim_service.submit_replicate_set.call_count == 2
+        mock_sim_service.gather.assert_called_once_with([future_a, future_b])
 
-        # Verify results were gathered
-        mock_sim_service.gather.assert_called_once()
-
-        # Verify tell was called with results
-        mock_adapter.tell.assert_called_once()
+        # Verify combined TrialResult
         tell_args = mock_adapter.tell.call_args[0][0]
-        assert len(tell_args) == 2  # 2 trial results
+        assert len(tell_args) == 1
+        combined_result = tell_args[0]
+        assert combined_result.status == TrialStatus.COMPLETED
+        assert combined_result.loss == pytest.approx((0.1 + 0.3) / 2)
+        assert "targets" in combined_result.diagnostics
+        assert set(combined_result.diagnostics["targets"].keys()) == {"targets/A", "targets/B"}
+
         assert all(isinstance(r, TrialResult) for r in tell_args)
 
         # Verify results were saved
@@ -200,7 +248,7 @@ class TestCalibrationWire:
             bundle_ref="sha256:0000000000000000000000000000000000000000000000000000000000000000",
             algorithm="optuna",
             target_spec=TargetSpec(
-                data={},
+                data={"target_entrypoints": ["targets/sir"]},
                 loss_function="mse",
             ),
             max_iterations=10,  # High limit
@@ -213,6 +261,8 @@ class TestCalibrationWire:
 
         # Create mock simulation service that returns good result
         mock_sim_service = MagicMock()
+        future = MagicMock(name="future")
+        mock_sim_service.submit_replicate_set.return_value = future
         mock_result = MagicMock()
         mock_result.loss = 0.05  # Below convergence threshold
         mock_result.aggregation_id = "agg-convergence-test"

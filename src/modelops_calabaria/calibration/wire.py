@@ -5,21 +5,24 @@ in Kubernetes pods. It orchestrates the ask/tell loop between the
 optimization algorithm and the simulation service.
 """
 
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from collections import defaultdict
+
 from modelops_contracts import (
     CalibrationJob,
     ReplicateSet,
+    SeedInfo,
     SimTask,
+    SimulationService,
     TrialResult,
     TrialStatus,
     UniqueParameterSet,
-    SeedInfo,
-    SimulationService,
 )
 
 from modelops_calabaria.calibration.base import AlgorithmAdapter, ParameterSpec
@@ -108,86 +111,95 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService, prov_s
         logger.info(f"Evaluating {len(param_sets)} parameter sets")
 
         # Submit simulations with proper seeding
-        futures = []
-        for i, params in enumerate(param_sets):
-            # Generate deterministic seed based on param_id
+        evaluation_plan: list[tuple[tuple[UniqueParameterSet, str | None], Any]] = []
+        param_lookup: dict[str, UniqueParameterSet] = {}
+        param_order: list[str] = []
+        targets_to_run = target_entrypoints or [None]
+        multi_target = len(target_entrypoints) > 1
+
+        for params in param_sets:
+            if params.param_id not in param_lookup:
+                param_lookup[params.param_id] = params
+                param_order.append(params.param_id)
+
             seed_info = generate_seed_info(
                 param_id=params.param_id,
                 base_seed=job.algorithm_config.get("base_seed", 42),
                 n_replicates=n_replicates,
             )
 
-            if n_replicates > 1:
-                # Create replicate set for this parameter set
-                replicate_set = ReplicateSet(
-                    base_task=SimTask(
-                        bundle_ref=job.bundle_ref,
-                        entrypoint=sim_entrypoint,
-                        params=params,
-                        seed=seed_info.trial_seed,
-                    ),
-                    n_replicates=n_replicates,
-                    seed_offset=0,  # Seeds already set in seed_info
-                )
-
-                # Submit with target aggregation if targets specified
-                if target_entrypoints:
-                    # Use first target for aggregation (TODO: support multiple)
-                    future = sim_service.submit_replicate_set(
-                        replicate_set,
-                        target_entrypoints[0],
-                    )
-                else:
-                    # Submit without target aggregation
-                    future = sim_service.submit_replicate_set(replicate_set, None)
-            else:
-                # Single simulation (no replicates)
-                task = SimTask(
+            replicate_set = ReplicateSet(
+                base_task=SimTask(
                     bundle_ref=job.bundle_ref,
                     entrypoint=sim_entrypoint,
                     params=params,
                     seed=seed_info.trial_seed,
-                )
-                future = sim_service.submit(task)
+                ),
+                n_replicates=n_replicates,
+                seed_offset=0,
+            )
 
-            futures.append((params, future))
+            for target in targets_to_run:
+                future = sim_service.submit_replicate_set(replicate_set, target)
+                evaluation_plan.append(((params, target), future))
 
         # Gather results
         logger.info("Gathering simulation results...")
-        param_future_pairs = futures
+        param_future_pairs = evaluation_plan
 
         # Handle potential failures in gather
         try:
-            results = sim_service.gather([f for _, f in futures])
+            results = sim_service.gather([f for _, f in evaluation_plan])
             logger.info(f"Gathered {len(results)} results, types: {[type(r).__name__ for r in results]}")
         except Exception as e:
             logger.error(f"Failed to gather results: {e}")
-            # Create failed results for all parameter sets
-            trial_results = []
-            for params, _ in param_future_pairs:
-                trial_result = TrialResult(
-                    param_id=params.param_id,
-                    loss=float("inf"),
-                    status=TrialStatus.FAILED,
-                    diagnostics={"error": f"Aggregation failed: {str(e)[:200]}"},
+            trial_results = [
+                _failed_trial(
+                    param_lookup[param_id],
+                    f"Aggregation failed: {str(e)[:200]}",
                 )
-                trial_results.append(trial_result)
+                for param_id in param_order
+            ]
         else:
-            # Convert successful results to TrialResults
-            trial_results = []
-            for (params, _), result in zip(param_future_pairs, results):
-                # Handle individual result failures
+            param_results_map: dict[str, TrialResult] = {}
+            param_failures: dict[str, TrialResult] = {}
+            param_target_results: dict[str, list[tuple[str, TrialResult]]] = defaultdict(list)
+
+            for ((params, target), _), result in zip(param_future_pairs, results):
+                if params.param_id in param_failures:
+                    continue
+
                 if isinstance(result, Exception):
-                    logger.error(f"Param {params.param_id[:8]}: Got Exception: {type(result).__name__}: {str(result)[:200]}")
-                    trial_result = TrialResult(
-                        param_id=params.param_id,
-                        loss=float("inf"),
-                        status=TrialStatus.FAILED,
-                        diagnostics={"error": str(result)[:200]},
+                    logger.error(
+                        f"Param {params.param_id[:8]}: Got Exception: {type(result).__name__}: {str(result)[:200]}"
                     )
+                    param_failures[params.param_id] = _failed_trial(
+                        params,
+                        str(result)[:200],
+                    )
+                    continue
+
+                trial_result = convert_to_trial_result(params, result)
+                if multi_target and target:
+                    param_target_results[params.param_id].append((target, trial_result))
                 else:
-                    trial_result = convert_to_trial_result(params, result)
-                trial_results.append(trial_result)
+                    param_results_map[params.param_id] = trial_result
+
+            for param_id, target_results in param_target_results.items():
+                if param_id in param_failures:
+                    continue
+                combined = _combine_target_results(param_lookup[param_id], target_results)
+                if combined.status == TrialStatus.FAILED:
+                    param_failures[param_id] = combined
+                else:
+                    param_results_map[param_id] = combined
+
+            trial_results = []
+            for param_id in param_order:
+                if param_id in param_failures:
+                    trial_results.append(param_failures[param_id])
+                elif param_id in param_results_map:
+                    trial_results.append(param_results_map[param_id])
 
         # Log results
         for trial_result in trial_results:
@@ -251,6 +263,14 @@ def get_connection_info() -> Dict[str, str]:
     return connection_info
 
 
+def _stable_seed(namespace: str, base_seed: int) -> int:
+    """Generate a stable uint31 seed from arbitrary identifiers."""
+    h = hashlib.blake2b(digest_size=8)
+    h.update(namespace.encode("utf-8"))
+    h.update(str(base_seed).encode("utf-8"))
+    return int.from_bytes(h.digest(), "big") & 0x7FFFFFFF
+
+
 def generate_seed_info(
     param_id: str,
     base_seed: int = 42,
@@ -266,18 +286,62 @@ def generate_seed_info(
     Returns:
         SeedInfo with deterministic seeds
     """
-    # Use param_id hash for deterministic trial seed
-    trial_seed = (hash(param_id) & 0x7FFFFFFF) ^ base_seed
-
-    # Generate replicate seeds
+    trial_seed = _stable_seed(f"{param_id}:trial", base_seed)
     replicate_seeds = tuple(
-        (trial_seed + i * 1000) & 0x7FFFFFFF for i in range(n_replicates)
+        _stable_seed(f"{param_id}:replicate:{i}", base_seed) for i in range(n_replicates)
     )
 
     return SeedInfo(
         base_seed=base_seed,
         trial_seed=trial_seed,
         replicate_seeds=replicate_seeds,
+    )
+
+
+def _failed_trial(params: UniqueParameterSet, message: str, extra_diag: dict | None = None) -> TrialResult:
+    diag = {"error": message}
+    if extra_diag:
+        diag.update(extra_diag)
+    return TrialResult(
+        param_id=params.param_id,
+        loss=float("nan"),
+        status=TrialStatus.FAILED,
+        diagnostics=diag,
+    )
+
+
+def _combine_target_results(
+    param: UniqueParameterSet,
+    target_results: list[tuple[str, TrialResult]],
+) -> TrialResult:
+    failed = {
+        target: result for target, result in target_results if result.status != TrialStatus.COMPLETED
+    }
+    if failed:
+        diag = {
+            "targets": {
+                target: {
+                    "status": result.status.value,
+                    "diagnostics": result.diagnostics,
+                }
+                for target, result in target_results
+            }
+        }
+        return _failed_trial(param, "One or more targets failed", diag)
+
+    combined_loss = sum(result.loss for _, result in target_results) / len(target_results)
+    diag_targets = {
+        target: {
+            "loss": result.loss,
+            **result.diagnostics,
+        }
+        for target, result in target_results
+    }
+    return TrialResult(
+        param_id=param.param_id,
+        loss=combined_loss,
+        status=TrialStatus.COMPLETED,
+        diagnostics={"targets": diag_targets},
     )
 
 
@@ -312,25 +376,20 @@ def convert_to_trial_result(
                 },
             )
         elif "outputs" in result:
-            # Raw SimReturn as dictionary without target evaluation
-            loss = None
-            if "loss" in result.get("outputs", {}):
-                loss = float(result["outputs"]["loss"])
+            outputs = result.get("outputs", {})
+            if "loss" not in outputs:
+                return _failed_trial(
+                    params,
+                    "No loss provided in outputs",
+                    {"outputs": list(outputs.keys())},
+                )
 
-            if loss is not None:
-                return TrialResult(
-                    param_id=params.param_id,
-                    loss=loss,
-                    status=TrialStatus.COMPLETED,
-                    diagnostics={"outputs": list(result.get("outputs", {}).keys())},
-                )
-            else:
-                return TrialResult(
-                    param_id=params.param_id,
-                    loss=float("inf"),
-                    status=TrialStatus.FAILED,
-                    diagnostics={"error": "No loss computed in outputs"},
-                )
+            return TrialResult(
+                param_id=params.param_id,
+                loss=float(outputs["loss"]),
+                status=TrialStatus.COMPLETED,
+                diagnostics={"outputs": list(outputs.keys())},
+            )
 
     # Check if result is an AggregationReturn object (has loss and aggregation_id attributes)
     if hasattr(result, "loss") and hasattr(result, "aggregation_id"):
@@ -347,40 +406,24 @@ def convert_to_trial_result(
         )
     elif hasattr(result, "outputs"):
         # Raw SimReturn without target evaluation
-        # Try to extract a loss if available
-        loss = None
-        if "loss" in result.outputs:
-            # Loss might be in outputs
-            loss_data = result.outputs["loss"]
-            # Parse loss from Arrow/Parquet bytes
-            # For now, just use a placeholder
-            loss = 1.0  # Placeholder
+        if "loss" not in result.outputs:
+            return _failed_trial(
+                params,
+                "No loss computed",
+                {"outputs": list(result.outputs.keys())},
+            )
 
-        if loss is not None:
-            return TrialResult(
-                param_id=params.param_id,
-                loss=loss,
-                status=TrialStatus.COMPLETED,
-                diagnostics={"outputs": list(result.outputs.keys())},
-            )
-        else:
-            # No loss available
-            return TrialResult(
-                param_id=params.param_id,
-                loss=float("inf"),
-                status=TrialStatus.FAILED,
-                diagnostics={
-                    "error": "No loss computed",
-                    "outputs": list(result.outputs.keys())
-                },
-            )
+        return _failed_trial(
+            params,
+            "Loss extraction for raw SimReturn outputs is not supported; "
+            "provide AggregationReturn with explicit loss.",
+            {"outputs": list(result.outputs.keys())},
+        )
     else:
         # Unknown result type or error
-        return TrialResult(
-            param_id=params.param_id,
-            loss=float("inf"),
-            status=TrialStatus.FAILED,
-            diagnostics={"error": f"Unknown result type: {type(result).__name__}"},
+        return _failed_trial(
+            params,
+            f"Unknown result type: {type(result).__name__}",
         )
 
 
@@ -455,13 +498,13 @@ def save_calibration_results(job: CalibrationJob, adapter: AlgorithmAdapter, pro
         logger.info(f"Saved calibration results to {output_file}")
 
         # Upload to Azure if ProvenanceStore is available (matches simulation job pattern)
-        if prov_store and hasattr(prov_store, '_azure_backend') and prov_store._azure_backend:
+        if prov_store and hasattr(prov_store, "supports_remote_uploads") and prov_store.supports_remote_uploads():
             try:
                 logger.info("Uploading calibration results to Azure...")
 
                 # Upload the calibration directory
                 remote_prefix = f"views/jobs/{job.job_id}/calibration"
-                prov_store._upload_to_azure(local_dir, remote_prefix)
+                prov_store.upload_directory(local_dir, remote_prefix)
 
                 logger.info(f"Calibration results uploaded to Azure: {remote_prefix}")
             except Exception as e:

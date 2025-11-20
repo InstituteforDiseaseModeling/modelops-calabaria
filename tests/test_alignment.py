@@ -76,6 +76,27 @@ def test_asof_join_with_grouping():
     assert aligned.residuals("value").to_list() == [11, 101]
 
 
+def test_asof_join_sorts_unsorted_inputs():
+    observed = pl.DataFrame(
+        {
+            "time": [3, 1, 5, 2],
+            "value": [20, 10, 30, 15],
+        }
+    )
+    simulated = pl.DataFrame(
+        {
+            "time": [2, 4, 6, 1],
+            "value": [19, 29, 31, 9],
+        }
+    )
+
+    aligner = AsofJoin(on_column="time", strategy="backward")
+    unsorted_aligned = aligner.align(observed, [simulated])
+
+    sorted_expected = aligner.align(observed.sort("time"), [simulated.sort("time")])
+    assert unsorted_aligned.data.to_dicts() == sorted_expected.data.to_dicts()
+
+
 def test_join_alignment_dispatch_exact():
     observed = pl.DataFrame({"t": [0, 1, 2], "y": [1.0, 2.0, 3.0]})
     simulated = pl.DataFrame({"t": [0, 1, 2], "y": [0.9, 2.1, 3.2]})
