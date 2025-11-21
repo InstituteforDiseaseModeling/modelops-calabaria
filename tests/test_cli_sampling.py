@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import textwrap
 from pathlib import Path
 import pytest
 from unittest.mock import patch, MagicMock
@@ -42,7 +43,6 @@ class TestCLISampling:
                 output=str(output_path),
                 seed=42,
                 scramble=False,
-                targets=None,
                 n_replicates=1
             )
 
@@ -57,6 +57,8 @@ class TestCLISampling:
             assert study_data["sampling_method"] == "sobol"
             assert len(study_data["parameter_sets"]) == 8
             assert study_data["metadata"]["model_class"] == "models.test:TestModel"
+            assert study_data["metadata"]["name"] == "test_study"
+            assert study_data["metadata"].get("tags", {}) == {}
 
             # Check first parameter set structure
             param_set = study_data["parameter_sets"][0]
@@ -81,7 +83,6 @@ class TestCLISampling:
                 grid_points=2,
                 output=str(output_path),
                 seed=100,
-                targets=None,
                 n_replicates=1
             )
 
@@ -96,6 +97,8 @@ class TestCLISampling:
             assert study_data["sampling_method"] == "grid"
             # 2 points per param, 3 params = 2^3 = 8 parameter sets
             assert len(study_data["parameter_sets"]) == 8
+            assert study_data["metadata"]["name"] == "grid_study"
+            assert study_data["metadata"].get("tags", {}) == {}
 
     @patch("importlib.import_module")
     def test_invalid_model_error(self, mock_import):
@@ -111,7 +114,6 @@ class TestCLISampling:
                 output="study.json",
                 seed=42,
                 scramble=True,
-                targets=None,
                 n_replicates=1
             )
 
@@ -137,7 +139,6 @@ class TestCLISampling:
                 output="study.json",
                 seed=42,
                 scramble=True,
-                targets=None,
                 n_replicates=1
             )
 
@@ -158,7 +159,6 @@ class TestCLISampling:
                 output=str(output_path),
                 seed=123,
                 scramble=True,
-                targets=None,
                 n_replicates=1
             )
 
@@ -184,7 +184,6 @@ class TestCLISampling:
                 grid_points=3,
                 output=str(output_path),
                 seed=200,
-                targets=None,
                 n_replicates=1
             )
 
@@ -195,3 +194,105 @@ class TestCLISampling:
 
             # 3 points per param, 3 params = 3^3 = 27 parameter sets
             assert len(study_data["parameter_sets"]) == 27
+
+    @patch("modelops_calabaria.cli.sampling.load_symbol")
+    def test_sobol_with_name_and_tags(self, mock_load_symbol, capsys):
+        mock_load_symbol.return_value = MockModel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "custom_study.json"
+
+            sobol_command(
+                model_class="models.test:TestModel",
+                scenario="baseline",
+                n_samples=4,
+                output=str(output_path),
+                seed=10,
+                scramble=True,
+                n_replicates=2,
+                name="baseline_sobol",
+                tags=["phase=mlp", "priority=high"],
+            )
+
+            data = json.loads(output_path.read_text())
+            assert data["metadata"]["name"] == "baseline_sobol"
+            assert data["metadata"]["tags"] == {"phase": "mlp", "priority": "high"}
+
+            captured = capsys.readouterr().out
+            assert "Study Summary" in captured
+            assert "phase=mlp" in captured
+            assert "baseline_sobol" in captured
+
+    @patch("modelops_calabaria.cli.sampling.load_symbol")
+    def test_sobol_accepts_bundle_model_id(self, mock_load_symbol, capsys):
+        """Model IDs from .modelops-bundle/registry.yaml should resolve automatically."""
+        mock_load_symbol.return_value = MockModel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            registry_dir = root / ".modelops-bundle"
+            registry_dir.mkdir()
+            registry_file = registry_dir / "registry.yaml"
+            registry_file.write_text(textwrap.dedent(
+                """
+                version: '1.0'
+                models:
+                  sir_starsimsir:
+                    entrypoint: models.sir:StarsimSIR
+                    path: models/sir.py
+                    class_name: StarsimSIR
+                """
+            ).strip())
+
+            output_path = root / "sobol.json"
+            sobol_command(
+                model_class="sir_starsimsir",
+                n_samples=2,
+                output=str(output_path),
+                seed=1,
+                scramble=False,
+                n_replicates=1,
+                project_root=str(root),
+            )
+
+            mock_load_symbol.assert_called_with(
+                "models.sir:StarsimSIR",
+                project_root=str(root),
+                allow_cwd_import=True,
+            )
+            captured = capsys.readouterr().out
+            assert "Resolved model id 'sir_starsimsir'" in captured
+            data = json.loads(output_path.read_text())
+            assert data["metadata"]["model_class"] == "models.sir:StarsimSIR"
+
+    @patch("modelops_calabaria.cli.sampling.load_symbol")
+    def test_bundle_model_id_not_found(self, mock_load_symbol):
+        mock_load_symbol.return_value = MockModel
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            registry_dir = root / ".modelops-bundle"
+            registry_dir.mkdir()
+            (registry_dir / "registry.yaml").write_text(textwrap.dedent(
+                """
+                version: '1.0'
+                models:
+                  alt_model:
+                    entrypoint: models.alt:AltModel
+                    path: models/alt.py
+                    class_name: AltModel
+                """
+            ).strip())
+
+            from typer import Exit
+            with pytest.raises(Exit):
+                sobol_command(
+                    model_class="sir_starsimsir",
+                    n_samples=2,
+                    output=str(root / "study.json"),
+                    seed=1,
+                    scramble=False,
+                    n_replicates=1,
+                    project_root=str(root),
+                )
+            assert not mock_load_symbol.called

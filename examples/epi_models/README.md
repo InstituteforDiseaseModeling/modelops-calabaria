@@ -50,52 +50,74 @@ An age-structured SEIR model with three age groups (children 0-17, adults 18-64,
 
 ## Usage
 
-### 1. Model Discovery
+### 1. Generate Simulation Studies
 
-Discover available models in the project:
+Use the sampling commands to create study specifications for distributed simulation:
 
 ```bash
 cd examples/epi_models
-cb models discover
+
+# Sobol sampling across the SEIR parameter space
+cb sampling sobol "src/models/seir.py:StochasticSEIR" \
+  --n-samples 256 \
+  --n-replicates 16 \
+  --scenario baseline \
+  --name seir-sobol \
+  --output studies/seir_sobol.json
+
+# Grid sampling for the age-stratified model
+cb sampling grid "src/models/seir_age.py:AgeStratifiedSEIR" \
+  --grid-points 5 \
+  --scenario school_closure \
+  --name seir-age-grid \
+  --output studies/seir_age_grid.json
 ```
 
-This will find and display information about both models including their parameters, outputs, and scenarios.
+The resulting JSON files can be submitted directly via `mops jobs submit`.
 
-### 2. Export Model Configuration
+> Tip: If you've already registered the models with `modelops-bundle`, you can
+> call them by ID (e.g., `cb sampling sobol sir_starsimsir`) and Calabaria will
+> resolve the entrypoint from `.modelops-bundle/registry.yaml`.
 
-Add models to the project configuration:
+### 2. Build Calibration Specs
+
+Create Optuna calibration specifications with explicit target/parameter definitions:
 
 ```bash
-# Export the basic SEIR model
-cb models export models.seir:StochasticSEIR --files src/models/seir.py
-
-# Export the age-structured model
-cb models export models.seir_age:AgeStratifiedSEIR --files src/models/seir_age.py
+cb calibration optuna "src/models/seir.py:StochasticSEIR" \
+  data/observed_incidence.parquet \
+  beta:0.2:1.2,gamma:0.05:0.4,sigma:0.05:0.3 \
+  --target-set incidence \
+  --max-trials 400 \
+  --n-replicates 12 \
+  --output studies/seir_calibration.json
 ```
 
-This updates `pyproject.toml` with model definitions.
-
-### 3. Verify Import Boundaries
-
-Verify that models only import from their declared dependencies:
+Target sets come from the bundle registry. Define them once with:
 
 ```bash
-cb models verify
+mops-bundle target-set set incidence \
+  --target incidence_per_replicate_target \
+  --target incidence_replicate_mean_target
 ```
 
-### 4. Build Manifest
+### 3. Register Models with ModelOps-Bundle
 
-Generate the manifest file containing model metadata:
+Use `modelops-bundle` to register the model entrypoints so the bundle tracks code/data:
 
 ```bash
-cb manifest build
+modelops-bundle register-model src/models/seir.py --class StochasticSEIR
+modelops-bundle register-model src/models/seir_age.py --class AgeStratifiedSEIR
+
+# Review tracked assets
+modelops-bundle status
 ```
 
-This creates `manifest.json` with complete model specifications.
+The bundler manages manifests/registries automatically; Calabaria no longer exports to `pyproject.toml`.
 
-### 5. Test Wire Protocol
+### 4. Test Wire Protocol
 
-Test model execution via the wire protocol:
+When you have a manifest (produced by `modelops-bundle` or ModelOps services), you can exercise the wire protocol locally:
 
 ```python
 from modelops_calabaria.wire_loader import make_wire_from_manifest
@@ -207,19 +229,18 @@ results = sim_service.get_results(job.id)
 1. Create new model file in `src/models/`
 2. Implement `BaseModel` with required methods
 3. Add `@model_output` and `@model_scenario` decorators
-4. Export with `cb models export`
-5. Test with `cb models verify`
+4. Register the entrypoint with `modelops-bundle register-model`
+5. Generate a study via `cb sampling` to exercise parameters end-to-end
 
 ### Testing Changes
 
 Run the complete workflow to test changes:
 
 ```bash
-make discover  # If you create a Makefile
-make export
-make verify
-make manifest
-make test
+cb sampling sobol "src/models/seir.py:StochasticSEIR" --n-samples 64 --output /tmp/test-study.json
+cb sampling grid "src/models/seir_age.py:AgeStratifiedSEIR" --grid-points 3 --output /tmp/test-grid.json
+modelops-bundle status
+pytest
 ```
 
 This example project demonstrates the complete ModelOps-Calabria workflow from model development to distributed execution.

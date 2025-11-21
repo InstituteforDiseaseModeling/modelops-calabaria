@@ -185,20 +185,7 @@ grid_samples = grid.sample()
 
 ## CLI Reference
 
-### Model Commands
-
-```bash
-# Discover models in your project
-cb models discover
-
-# Export model configuration
-cb models export "models.seir:StochasticSEIR" --files "models/*.py"
-
-# Verify import boundaries
-cb models verify
-```
-
-### Sampling Commands
+### Sampling
 
 ```bash
 # Sobol sampling with options
@@ -212,6 +199,33 @@ cb sampling sobol "models.seir:MyModel" \
 cb sampling grid "models.seir:MyModel" \
   --grid-points 10 \
   --output grid.json
+```
+
+Tip: inside a ModelOps bundle you can also reference models by their registry IDs
+(e.g., `cb sampling sobol sir_starsimsir`), and Calabaria will look them up in
+`.modelops-bundle/registry.yaml` automatically.
+
+### Calibration
+
+```bash
+# Build an Optuna calibration spec
+cb calibration optuna "models.seir:MyModel" \
+  data/observed_incidence.parquet \
+  beta:0.2:1.0,gamma:0.05:0.3,sigma:0.05:0.4 \
+  --target-set incidence \
+  --max-trials 500 \
+  --n-replicates 16 \
+  --name seir-calibration \
+  --output studies/seir-calibration.json
+```
+
+Target metadata comes from `.modelops-bundle/registry.yaml`. Use `--target-set <name>` to reference a named group created via `mops-bundle target-set set`, or repeat `--target <id>` to select specific target IDs. If you omit both flags, all registered targets are included.
+
+### Diagnostics
+
+```bash
+# Generate a diagnostics PDF from a ModelOps results parquet
+cb diagnostics report results/optuna_results.parquet --output reports/study.pdf
 ```
 
 ## Integration with ModelOps
