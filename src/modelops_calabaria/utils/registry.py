@@ -65,15 +65,29 @@ def resolve_target_entries(
     """Resolve target IDs using the registry."""
     registry, registry_path = load_registry(project_root)
 
-    selected_ids: List[str]
     target_sets = getattr(registry, "target_sets", {}) or {}
+    if not target_sets and target_set:
+        import yaml
+        try:
+            raw = yaml.safe_load(Path(registry_path).read_text()) or {}
+            target_sets = raw.get("target_sets", {})
+        except Exception:
+            target_sets = {}
+    def _extract_targets(entry):
+        if hasattr(entry, "targets"):
+            return list(entry.targets)
+        if isinstance(entry, dict):
+            return list(entry.get("targets", []))
+        return []
+
+    selected_ids: List[str]
     if target_set:
         target_set_obj = target_sets.get(target_set)
         if not target_set_obj:
             available = ", ".join(sorted(target_sets.keys()))
             suffix = f" Available sets: {available}" if available else ""
             raise ValueError(f"Target set '{target_set}' not found in {registry_path}.{suffix}")
-        selected_ids = list(target_set_obj.targets)
+        selected_ids = _extract_targets(target_set_obj)
     elif target_ids:
         selected_ids = list(dict.fromkeys(target_ids))
     else:
