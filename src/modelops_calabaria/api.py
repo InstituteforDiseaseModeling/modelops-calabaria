@@ -70,11 +70,6 @@ from .constants import SEED_COL
 # Import utilities (new!)
 from .utils.imports import load_symbol
 
-# CLI utilities (for programmatic use)
-from .cli.discover import discover_models, suggest_model_config
-from .cli.config import read_pyproject, write_model_config, validate_config
-from .cli.verify import verify_all_models, verify_model
-
 # Version
 try:
     from importlib.metadata import version
@@ -136,15 +131,6 @@ __all__ = [
 
     # Utilities
     "load_symbol",
-
-    # CLI utilities
-    "discover_models",
-    "suggest_model_config",
-    "read_pyproject",
-    "write_model_config",
-    "validate_config",
-    "verify_all_models",
-    "verify_model",
 
     # Version
     "__version__",
