@@ -228,6 +228,55 @@ Target metadata comes from `.modelops-bundle/registry.yaml`. Use `--target-set <
 cb diagnostics report results/optuna_results.parquet --output reports/study.pdf
 ```
 
+## End-to-End Example (Starsim SIR)
+
+These are the exact commands (and outputs) from `examples/starsim-sir`, showing how the pieces fit together:
+
+```shell
+$ mops bundle register-model models/sir.py
++ sir_starsimsir       entry=models.sir:StarsimSIR
+✓ Models updated: +1 ~0 -0
+
+$ mops bundle list
+                                      Registered Models (1)
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
+┃ Model          ┃ Entrypoint            ┃ Outputs                           ┃ Labels ┃ Aliases ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
+│ sir_starsimsir │ models.sir:StarsimSIR │ incidence, prevalence, cumulative │ -      │ -       │
+└────────────────┴───────────────────────┴───────────────────────────────────┴────────┴─────────┘
+
+$ mops bundle register-target --regen-all targets/incidence.py
++ incidence_per_replicate_target entry=targets.incidence:incidence_per_replicate_target
++ incidence_replicate_mean_target entry=targets.incidence:incidence_replicate_mean_target
+✓ Targets updated: +2 ~0 -0
+
+$ cb sampling sobol sir_starsimsir --n-samples 1000 --name sobol --n-replicates 100
+Resolved model id 'sir_starsimsir' → models.sir:StarsimSIR
+Generated 1000 Sobol samples for 2 parameters
+[info]Using default output path sobol.json (set --output to override)
+✓ Generated SimulationStudy with 1000 parameter sets
+
+Study Summary
+  Name       : sobol
+  Model      : sir_starsimsir → models.sir:StarsimSIR (scenario=baseline)
+  Sampling   : Sobol (scramble=on, seed=42)
+  Parameters : 1000 sets × 100 replicates = 100,000 simulations
+  Tags       : -
+  Output     : sobol.json
+  Parameter Space:
+    • beta ∈ [0.01, 0.2]
+    • dur_inf ∈ [3.0, 10.0]
+
+$ mops jobs submit sobol.json
+...
+✓ Job submitted successfully!
+  Job ID: job-47179d43
+  Environment: dev
+  Status: Running
+```
+
+That’s the entire workflow: register once, auto-discover outputs/targets, generate a study, and submit it. Target sets are defined in `.modelops-bundle/registry.yaml` (via `mops bundle target-set set ...`) and reused transparently by `cb calibration` and `mops jobs submit`.
+
 ## Integration with ModelOps
 
 Calabaria works seamlessly with the ModelOps ecosystem:
