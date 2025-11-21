@@ -66,10 +66,11 @@ def resolve_target_entries(
     registry, registry_path = load_registry(project_root)
 
     selected_ids: List[str]
+    target_sets = getattr(registry, "target_sets", {}) or {}
     if target_set:
-        target_set_obj = registry.target_sets.get(target_set)
+        target_set_obj = target_sets.get(target_set)
         if not target_set_obj:
-            available = ", ".join(sorted(registry.target_sets.keys()))
+            available = ", ".join(sorted(target_sets.keys()))
             suffix = f" Available sets: {available}" if available else ""
             raise ValueError(f"Target set '{target_set}' not found in {registry_path}.{suffix}")
         selected_ids = list(target_set_obj.targets)
