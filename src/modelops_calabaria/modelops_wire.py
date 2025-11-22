@@ -225,12 +225,16 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
 
     except Exception as e:
         logger.error(f"Wire execution failed: {e}", exc_info=True)
-        # Return error information
+        # Return error in the format subprocess_runner expects
+        import traceback
+        error_info = {
+            "error": str(e),
+            "type": type(e).__name__,
+            "entrypoint": entrypoint,
+            "traceback": traceback.format_exc()
+        }
+        # Return as base64-encoded JSON (matching subprocess_runner error format)
+        import base64
         return {
-            "table": b"",
-            "metadata": _json_dumps({
-                "error": str(e),
-                "entrypoint": entrypoint,
-                "seed": seed
-            })
+            "error": base64.b64encode(_json_dumps(error_info)).decode("ascii")
         }
