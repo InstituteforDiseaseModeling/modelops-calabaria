@@ -169,17 +169,8 @@ def make_wire(entry: EntryRecord) -> Callable:
         state = model.build_sim(pset, MappingProxyType(config))
         raw = model.run_sim(state, seed)
 
-        # Debug: Log raw simulation output
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"DEBUG wire_loader: raw output keys: {list(raw.keys()) if isinstance(raw, dict) else type(raw)}")
-
         # Extract all outputs
         all_outputs = model.extract_outputs(raw, seed)
-
-        # Debug: Log extracted outputs
-        logger.info(f"DEBUG wire_loader: extracted output keys: {list(all_outputs.keys())}")
-        logger.info(f"DEBUG wire_loader: extracted output types: {[(k, type(v).__name__) for k, v in all_outputs.items()]}")
 
         # Filter outputs if requested
         if outputs is not None:
@@ -200,10 +191,6 @@ def make_wire(entry: EntryRecord) -> Callable:
             buffer = io.BytesIO()
             df.write_ipc(buffer)
             serialized_outputs[name] = buffer.getvalue()
-
-        # Debug: Log serialized outputs
-        logger.info(f"DEBUG wire_loader: serialized output keys: {list(serialized_outputs.keys())}")
-        logger.info(f"DEBUG wire_loader: serialized sizes: {[(k, len(v)) for k, v in serialized_outputs.items()]}")
 
         # Build provenance
         provenance = {
