@@ -1,5 +1,10 @@
 # Wire Protocol Architecture: Dependency-Free Execution
 
+> **Legacy Notice:** Operational examples in this document mention the old
+> `cb manifest` workflow. Those commands have been removed; ModelOps-bundle
+> now handles manifests end-to-end. The protocol architecture described here
+> remains accurate.
+
 ## The Critical Principle: ModelOps Never Imports Calabaria
 
 **ModelOps is pure infrastructure**. It orchestrates distributed computation but has ZERO knowledge of science frameworks. The user's code (including Calabaria) runs in isolated processes, while ModelOps only handles the protocol boundary.

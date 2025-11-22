@@ -65,14 +65,8 @@ def resolve_target_entries(
     """Resolve target IDs using the registry."""
     registry, registry_path = load_registry(project_root)
 
-    target_sets = getattr(registry, "target_sets", {}) or {}
-    if not target_sets and target_set:
-        import yaml
-        try:
-            raw = yaml.safe_load(Path(registry_path).read_text()) or {}
-            target_sets = raw.get("target_sets", {})
-        except Exception:
-            target_sets = {}
+    target_sets = _load_target_sets(registry, Path(registry_path))
+
     def _extract_targets(entry):
         if hasattr(entry, "targets"):
             return list(entry.targets)
@@ -102,3 +96,111 @@ def resolve_target_entries(
 
     entries = [(tid, registry.targets[tid]) for tid in selected_ids]
     return entries, target_set
+
+
+def _load_target_sets(registry: BundleRegistry, registry_path: Path) -> dict:
+    """Load target sets, supporting legacy registries and missing PyYAML."""
+    target_sets = getattr(registry, "target_sets", {}) or {}
+    if target_sets:
+        return target_sets
+
+    try:
+        import yaml  # type: ignore
+    except ModuleNotFoundError:
+        yaml = None
+
+    try:
+        raw_text = registry_path.read_text()
+    except OSError:
+        return {}
+
+    if yaml is not None:
+        try:
+            raw = yaml.safe_load(raw_text) or {}
+            return raw.get("target_sets", {}) or {}
+        except Exception:
+            pass
+
+    return _parse_target_sets_block(raw_text)
+
+
+def _parse_target_sets_block(text: str) -> dict:
+    """Very small YAML subset parser for the target_sets block."""
+    lines = text.splitlines()
+    target_sets: dict[str, dict] = {}
+
+    def leading_spaces(s: str) -> int:
+        return len(s) - len(s.lstrip(" "))
+
+    i = 0
+    # Find the target_sets: section
+    while i < len(lines) and lines[i].strip() != "target_sets:":
+        i += 1
+    if i == len(lines):
+        return {}
+    i += 1
+
+    current: Optional[str] = None
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped:
+            i += 1
+            continue
+        indent = leading_spaces(line)
+        if indent == 0:
+            break
+        if indent == 2 and stripped.endswith(":"):
+            current = stripped[:-1].strip()
+            target_sets[current] = {"targets": [], "weights": {}}
+            i += 1
+            continue
+        if current is None:
+            i += 1
+            continue
+
+        if indent == 4 and stripped.startswith("targets:"):
+            i += 1
+            while i < len(lines):
+                entry_line = lines[i]
+                entry_stripped = entry_line.strip()
+                entry_indent = leading_spaces(entry_line)
+                if not entry_stripped:
+                    i += 1
+                    continue
+                if entry_indent <= 4:
+                    break
+                if entry_stripped.startswith("-"):
+                    value = entry_stripped[1:].strip().strip("'\"")
+                    if value:
+                        target_sets[current]["targets"].append(value)
+                    i += 1
+                    continue
+                break
+            continue
+
+        if indent == 4 and stripped.startswith("weights:"):
+            i += 1
+            while i < len(lines):
+                weight_line = lines[i]
+                weight_stripped = weight_line.strip()
+                weight_indent = leading_spaces(weight_line)
+                if not weight_stripped:
+                    i += 1
+                    continue
+                if weight_indent <= 4:
+                    break
+                if ":" in weight_stripped:
+                    name, raw_value = weight_stripped.split(":", 1)
+                    value_text = raw_value.strip().strip("'\"")
+                    try:
+                        value = float(value_text)
+                    except ValueError:
+                        value = value_text
+                    target_sets[current]["weights"][name.strip()] = value
+                i += 1
+            continue
+
+        i += 1
+
+    return target_sets

@@ -146,7 +146,7 @@ def optuna_command(
     spec_name = name or "calibration"
     output_path = Path(output) if output else default_output_path(spec_name, ".json")
     if output is None:
-        typer.echo(f"[info]Using default output path {output_path.name} (set --output to override)")
+        typer.echo(f"Using default output path {output_path.name} (set --output to override)")
 
     # Create CalibrationSpec
     spec = CalibrationSpec(

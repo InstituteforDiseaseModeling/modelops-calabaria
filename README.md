@@ -33,6 +33,131 @@ pip install -e .
 
 ## Quick Start
 
+### Starsim-SIR CLI flow (no prompts, no flags)
+
+The Starsim SIR example in `modelops/examples/starsim-sir` now works end-to-end
+with four commands—no `PYTHONPATH` tricks, no `--outputs`, and no confirmation
+prompts.
+
+1. **Register the model.** We auto-discover the outputs directly from the
+   decorators, so nothing extra is required.
+
+```console
+$ mops bundle register-model models/sir.py
++ sir_starsimsir       entry=models.sir:StarsimSIR
+✓ Models updated: +1 ~0 -0
+```
+
+2. **See what’s in the bundle.** The table makes it obvious that we now have a
+   model but no targets yet.
+
+```console
+$ mops bundle list
+                                      Registered Models (1)
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
+┃ Model          ┃ Entrypoint            ┃ Outputs                           ┃ Labels ┃ Aliases ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
+│ sir_starsimsir │ models.sir:StarsimSIR │ incidence, prevalence, cumulative │ -      │ -       │
+└────────────────┴───────────────────────┴───────────────────────────────────┴────────┴─────────┘
+
+  (no targets)
+```
+
+3. **Register targets (with regeneration).** Again, pure autodetection.
+
+```console
+$ mops bundle register-target --regen-all targets/incidence.py
++ incidence_per_replicate_target entry=targets.incidence:incidence_per_replicate_target
++ incidence_replicate_mean_target entry=targets.incidence:incidence_replicate_mean_target
+✓ Targets updated: +2 ~0 -0
+```
+
+4. **Confirm everything is wired up.**
+
+```console
+$ mops bundle list
+                                      Registered Models (1)
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
+┃ Model          ┃ Entrypoint            ┃ Outputs                           ┃ Labels ┃ Aliases ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
+│ sir_starsimsir │ models.sir:StarsimSIR │ incidence, prevalence, cumulative │ -      │ -       │
+└────────────────┴───────────────────────┴───────────────────────────────────┴────────┴─────────┘
+
+                                                 Registered Targets (2)
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
+┃ Target                          ┃ Entrypoint                                        ┃ Model Output ┃ Labels ┃ Weight ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
+│ incidence_per_replicate_target  │ targets.incidence:incidence_per_replicate_target  │ incidence    │ -      │ -      │
+│ incidence_replicate_mean_target │ targets.incidence:incidence_replicate_mean_target │ incidence    │ -      │ -      │
+└─────────────────────────────────┴───────────────────────────────────────────────────┴──────────────┴────────┴────────┘
+```
+
+5. **Generate samples directly from the CLI.** The `cb` command handles the
+   import pathing, uses the bundle registry to resolve the model, and emits a
+   friendly summary.
+
+```console
+$ cb sampling sobol sir_starsimsir --n-samples 1024 --name sobol --n-replicates 100
+Resolved model id 'sir_starsimsir' → models.sir:StarsimSIR
+Generated 1024 Sobol samples for 2 parameters
+Using default output path sobol.json (set --output to override)
+✓ Generated SimulationStudy with 1024 parameter sets
+
+Study Summary
+  Name       : sobol
+  Model      : sir_starsimsir → models.sir:StarsimSIR (scenario=baseline)
+  Sampling   : Sobol (scramble=on, seed=42)
+  Parameters : 1024 sets × 100 replicates = 102,400 simulations
+  Tags       : -
+  Output     : sobol.json
+  Parameter Space:
+    • beta ∈ [0.01, 0.2]
+    • dur_inf ∈ [3.0, 10.0]
+```
+
+6. **Submit the study** (handled by the `modelops` CLI, but shown here so you
+   can see the exact output users will experience).
+
+```console
+$ mops jobs submit sobol.json
+
+Loading job specification
+  Type: SimulationStudy
+  Model: models.sir/baseline
+  Sampling: sobol
+  Parameters: 1024 unique sets
+  Replicates: 100 per parameter set
+  Total simulations: 102400
+
+Auto-pushing bundle
+  Building and pushing bundle from current directory...
+Successfully pushed modelopsdevacrvsb.azurecr.io/starsim-sir:latest
+  ✓ Pushed bundle: starsim-sir@sha256:b94198d364c820303701615e702066f...
+
+Submitting simulation job
+
+✓ Job submitted successfully!
+  Job ID: job-47179d43
+  Environment: dev
+  Status: Running
+
+ To monitor job execution:
+  # Port-forward to access Dask dashboard (run in separate terminals or use &)
+  kubectl port-forward -n modelops-dask-dev svc/dask-scheduler 8787:8787 &
+  kubectl port-forward -n modelops-dask-dev svc/dask-scheduler 8786:8786 &
+  # Then open http://localhost:8787 in your browser
+
+ To check job status:
+  kubectl -n modelops-dask-dev get job job-47179d43
+
+ To see logs:
+  kubectl -n modelops-dask-dev logs job/job-47179d43
+  kubectl -n modelops-dask-dev logs deployment/dask-workers
+```
+
+That’s the entire happy path; the rest of this README covers the Python API if
+you prefer to integrate directly.
+
 ### 1. Import the Framework
 
 ```python
@@ -137,23 +262,7 @@ mops jobs submit study.json --auto
 
 ## Key Features
 
-### 🎯 Automatic Import Handling
-
-No more `PYTHONPATH` configuration! Calabaria automatically finds your models:
-
-```bash
-# Module path - automatically adds cwd to Python path
-cb sampling sobol "models.seir:MyModel"
-
-# File path - loads directly without sys.path changes
-cb sampling sobol "./models/seir.py:MyModel"
-
-# Control import behavior if needed
-cb sampling sobol "models.seir:MyModel" --no-cwd-import  # Requires PYTHONPATH
-cb sampling sobol "models.seir:MyModel" --project-root /path/to/project
-```
-
-### 📊 Clean Python API
+### Clean Python API
 
 ```python
 import modelops_calabaria as cb
@@ -167,11 +276,9 @@ params = cb.ParameterSet(space, {...})
 sampler = cb.SobolSampler(space)
 samples = sampler.sample(n=100)
 
-# Utilities
-ModelClass = cb.load_symbol("models.seir:StochasticSEIR")
 ```
 
-### 🔄 Sampling Strategies
+### Sampling Strategies
 
 ```python
 # Programmatic sampling
@@ -192,7 +299,6 @@ grid_samples = grid.sample()
 cb sampling sobol "models.seir:MyModel" \
   --n-samples 512 \
   --n-replicates 10 \
-  --scenario high_transmission \
   --output study.json
 
 # Grid sampling
@@ -219,7 +325,10 @@ cb calibration optuna "models.seir:MyModel" \
   --output studies/seir-calibration.json
 ```
 
-Target metadata comes from `.modelops-bundle/registry.yaml`. Use `--target-set <name>` to reference a named group created via `mops-bundle target-set set`, or repeat `--target <id>` to select specific target IDs. If you omit both flags, all registered targets are included.
+Target metadata comes from `.modelops-bundle/registry.yaml`. Use `--target-set
+<name>` to reference a named group created via `mops-bundle target-set set`, or
+repeat `--target <id>` to select specific target IDs. If you omit both flags,
+all registered targets are included.
 
 ### Diagnostics
 
@@ -227,55 +336,6 @@ Target metadata comes from `.modelops-bundle/registry.yaml`. Use `--target-set <
 # Generate a diagnostics PDF from a ModelOps results parquet
 cb diagnostics report results/optuna_results.parquet --output reports/study.pdf
 ```
-
-## End-to-End Example (Starsim SIR)
-
-These are the exact commands (and outputs) from `examples/starsim-sir`, showing how the pieces fit together:
-
-```shell
-$ mops bundle register-model models/sir.py
-+ sir_starsimsir       entry=models.sir:StarsimSIR
-✓ Models updated: +1 ~0 -0
-
-$ mops bundle list
-                                      Registered Models (1)
-┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━┓
-┃ Model          ┃ Entrypoint            ┃ Outputs                           ┃ Labels ┃ Aliases ┃
-┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━┩
-│ sir_starsimsir │ models.sir:StarsimSIR │ incidence, prevalence, cumulative │ -      │ -       │
-└────────────────┴───────────────────────┴───────────────────────────────────┴────────┴─────────┘
-
-$ mops bundle register-target --regen-all targets/incidence.py
-+ incidence_per_replicate_target entry=targets.incidence:incidence_per_replicate_target
-+ incidence_replicate_mean_target entry=targets.incidence:incidence_replicate_mean_target
-✓ Targets updated: +2 ~0 -0
-
-$ cb sampling sobol sir_starsimsir --n-samples 1000 --name sobol --n-replicates 100
-Resolved model id 'sir_starsimsir' → models.sir:StarsimSIR
-Generated 1000 Sobol samples for 2 parameters
-[info]Using default output path sobol.json (set --output to override)
-✓ Generated SimulationStudy with 1000 parameter sets
-
-Study Summary
-  Name       : sobol
-  Model      : sir_starsimsir → models.sir:StarsimSIR (scenario=baseline)
-  Sampling   : Sobol (scramble=on, seed=42)
-  Parameters : 1000 sets × 100 replicates = 100,000 simulations
-  Tags       : -
-  Output     : sobol.json
-  Parameter Space:
-    • beta ∈ [0.01, 0.2]
-    • dur_inf ∈ [3.0, 10.0]
-
-$ mops jobs submit sobol.json
-...
-✓ Job submitted successfully!
-  Job ID: job-47179d43
-  Environment: dev
-  Status: Running
-```
-
-That’s the entire workflow: register once, auto-discover outputs/targets, generate a study, and submit it. Target sets are defined in `.modelops-bundle/registry.yaml` (via `mops bundle target-set set ...`) and reused transparently by `cb calibration` and `mops jobs submit`.
 
 ## Integration with ModelOps
 

@@ -1,72 +1,63 @@
 #!/usr/bin/env python3
-"""Example usage of the modelops-calabaria programmatic API.
+"""Example usage of the modelops-calabaria programmatic API."""
 
-This demonstrates how other packages can use modelops-calabaria
-functionality programmatically without going through the CLI.
-"""
+from __future__ import annotations
 
 from pathlib import Path
-from modelops_calabaria import CalabariaCLI, quick_discover, quick_bundle_id
+
+from modelops_calabaria import (
+    GridSampler,
+    ParameterSpace,
+    ParameterSpec,
+    SobolSampler,
+    load_symbol,
+)
 
 
-def main():
-    """Demonstrate API usage."""
-    print("🔍 ModelOps-Calabaria API Usage Examples\n")
+def describe_samples(samples, title: str, limit: int = 3) -> None:
+    """Pretty-print a few sampled parameter sets."""
+    print(f"\n{title} (showing {min(limit, len(samples))} of {len(samples)})")
+    for idx, params in enumerate(samples[:limit], start=1):
+        values = ", ".join(f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}" for k, v in params.items())
+        print(f"  {idx:>2}: {values}")
 
-    # Example 1: Quick functions for simple operations
-    print("1. Using convenience functions:")
-    models = quick_discover()
-    print(f"   Found {len(models)} models:")
-    for model in models:
-        print(f"     - {model['full_path']}")
 
-    bundle_id = quick_bundle_id()
-    print(f"   Bundle ID: {bundle_id}")
-    print()
+def main() -> None:
+    print("🔬 Calabaria API demo")
 
-    # Example 2: Using the CalabariaCLI class for more control
-    print("2. Using CalabariaCLI class:")
-    cli = CalabariaCLI()
+    # 1) Build a parameter space directly
+    space = ParameterSpace([
+        ParameterSpec("beta", 0.2, 1.6, "float", doc="Transmission rate"),
+        ParameterSpec("gamma", 0.05, 0.5, "float", doc="Recovery rate"),
+        ParameterSpec("sigma", 0.05, 0.4, "float", doc="Incubation rate"),
+    ])
 
-    # Model discovery
-    models = cli.discover()
-    print(f"   Discovered {len(models)} models")
+    # 2) Generate Sobol samples
+    sobol = SobolSampler(space, scramble=True, seed=123)
+    sobol_samples = sobol.sample(16)
+    describe_samples(sobol_samples, "Sobol samples")
 
-    # Get suggested configurations
-    suggestions = cli.suggest_configs(models)
-    print(f"   Generated {len(suggestions)} configuration suggestions")
+    # 3) Generate a coarse grid for the same space
+    grid = GridSampler(space, n_points_per_param=3)
+    grid_samples = grid.sample(None)
+    describe_samples(grid_samples, "Grid samples")
 
-    # Verify models
-    try:
-        results = cli.verify()
-        passed = sum(1 for r in results.values() if r["ok"])
-        total = len(results)
-        print(f"   Verification: {passed}/{total} models passed")
-    except ValueError as e:
-        print(f"   Verification: {e}")
-
-    # Get manifest
-    try:
-        manifest = cli.get_manifest()
-        print(f"   Manifest: {len(manifest['models'])} models, schema {manifest['schema']}")
-    except Exception as e:
-        print(f"   Manifest: Error - {e}")
-
-    print()
-
-    # Example 3: Using context manager for different directory
-    print("3. Working with different directories:")
-    epi_models_path = Path("epi_models")
-    if epi_models_path.exists():
-        with CalabariaCLI(epi_models_path) as epi_cli:
-            epi_models = epi_cli.discover()
-            print(f"   Found {len(epi_models)} models in epi_models/")
-            epi_bundle = epi_cli.get_bundle_id()
-            print(f"   Epi models bundle ID: {epi_bundle}")
+    # 4) Load a model dynamically (if it exists) and introspect its parameter space
+    demo_model_path = Path("examples/epi_models/src/models/seir.py")
+    if demo_model_path.exists():
+        try:
+            Model = load_symbol("examples/epi_models/src/models/seir.py:StochasticSEIR")
+            model_space = Model.parameter_space()
+            print(f"\nLoaded {Model.__name__} with {len(model_space.specs)} parameters:")
+            for spec in model_space.specs[:5]:
+                rng = f"[{spec.min}, {spec.max}]" if spec.min != spec.max else f"= {spec.min}"
+                print(f"  • {spec.name} {rng}")
+        except Exception as exc:
+            print(f"\nCould not load demo model: {exc}")
     else:
-        print("   No epi_models directory found")
+        print("\nDemo model not found (examples/epi_models not present)")
 
-    print("\n✅ API examples completed!")
+    print("\n✅ API demo complete")
 
 
 if __name__ == "__main__":

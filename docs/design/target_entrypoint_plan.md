@@ -1,5 +1,9 @@
 # Calabaria Model Export & Bundle Implementation Plan
 
+> **Legacy Notice:** This planning doc reflects the retired Calabaria manifest/export CLI.
+> Modern Calabaria ships only sampling, calibration, and diagnostics commands; bundle
+> operations live in `modelops-bundle`.
+
 ## Objectives (MVP)
 
 1. **Explicit exports; no app logic in user code**

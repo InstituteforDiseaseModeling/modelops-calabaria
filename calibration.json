@@ -1,0 +1,47 @@
+{
+  "model": "models.sir",
+  "scenario": "baseline",
+  "algorithm": "optuna",
+  "target_data": {
+    "observed_file": "/var/folders/qv/s7trljdd2sgbfh7bjftndy5r0000gn/T/tmpqtkpp8vv/data.csv",
+    "target_entrypoints": [
+      "targets.incidence:incidence_target"
+    ],
+    "target_ids": [
+      "incidence"
+    ]
+  },
+  "max_iterations": 1000000,
+  "convergence_criteria": {},
+  "algorithm_config": {
+    "max_trials": 100,
+    "batch_size": 4,
+    "n_replicates": 3,
+    "parameter_specs": {
+      "beta": {
+        "lower": 0.1,
+        "upper": 0.5
+      },
+      "gamma": {
+        "lower": 0.05,
+        "upper": 0.2
+      }
+    },
+    "sampler": {
+      "type": "tpe",
+      "n_startup_trials": 10
+    },
+    "simulation_entrypoint": "sir"
+  },
+  "outputs": null,
+  "metadata": {
+    "model_class": "models.sir:StarsimSIR",
+    "n_parameters": 2,
+    "created_by": "cb calibration optuna",
+    "name": "calibration",
+    "target_set": null,
+    "target_ids": [
+      "incidence"
+    ]
+  }
+}

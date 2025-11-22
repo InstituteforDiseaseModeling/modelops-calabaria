@@ -1,0 +1,405 @@
+{
+  "job_id": "job-5ff33788",
+  "bundle_ref": "test-bundle-v1",
+  "priority": 0,
+  "resource_requirements": null,
+  "batches": [
+    {
+      "batch_id": "sobol-5a8a9c19",
+      "sampling_method": "sobol",
+      "metadata": {
+        "n_samples": 16,
+        "scramble": true,
+        "seed": 42,
+        "model_class": "models.seir:StochasticSEIR",
+        "scenario": "baseline"
+      },
+      "tasks": [
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "ee7b8c6e42f1b383b49777ffcb0fa6a9a6e5aca12aa94e7e7b2f7c7b21e5e4c7",
+            "values": {
+              "beta": 0.9189560012891888,
+              "sigma": 0.416465587541461,
+              "gamma": 0.4128857450094074,
+              "population": 54403,
+              "initial_infected": 30,
+              "initial_exposed": 84,
+              "simulation_days": 285
+            }
+          },
+          "seed": 42,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "c01057d175ea394f1fe47a934c55cc40145acba3750f29fe9c7573c3c47c61b4",
+            "values": {
+              "beta": 1.776684424187988,
+              "sigma": 0.12058016224764288,
+              "gamma": 0.19711537207476798,
+              "population": 953294,
+              "initial_infected": 57,
+              "initial_exposed": 27,
+              "simulation_days": 209
+            }
+          },
+          "seed": 43,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "044f50750b5aa2eeec24bb96ad1688b04dd143508210c63c2b50ff958c31f172",
+            "values": {
+              "beta": 1.4363033715635538,
+              "sigma": 0.38444056469015775,
+              "gamma": 0.3716735381167382,
+              "population": 362647,
+              "initial_infected": 77,
+              "initial_exposed": 20,
+              "simulation_days": 319
+            }
+          },
+          "seed": 44,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "a6f56e94cb4e12ef58f058f42674bb6a96f6c665e1b1d8d0ffa1a8b5261c014f",
+            "values": {
+              "beta": 0.5430563834495842,
+              "sigma": 0.1732597267255187,
+              "gamma": 0.12601983970962466,
+              "population": 645066,
+              "initial_infected": 11,
+              "initial_exposed": 63,
+              "simulation_days": 109
+            }
+          },
+          "seed": 45,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "ac6670a2bbdf24e47d99a41956605c0fb02ef3da7cf3b5d77b6dc91c7763e427",
+            "values": {
+              "beta": 0.29734314158558844,
+              "sigma": 0.2878550512250513,
+              "gamma": 0.26712911715731025,
+              "population": 622800,
+              "initial_infected": 16,
+              "initial_exposed": 95,
+              "simulation_days": 359
+            }
+          },
+          "seed": 46,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "78a97cac713b2cdb3a3798dcf2544b241d0456f1bc4e71b39cd054477be4631d",
+            "values": {
+              "beta": 1.2070284337736668,
+              "sigma": 0.2733295001089573,
+              "gamma": 0.4547746174968779,
+              "population": 402702,
+              "initial_infected": 98,
+              "initial_exposed": 38,
+              "simulation_days": 134
+            }
+          },
+          "seed": 47,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "49d76786d61f451e8a4d420e5811f9e8ebe19020b3545eddefb12afd1ab11f29",
+            "values": {
+              "beta": 1.5309594115242362,
+              "sigma": 0.4602853776887059,
+              "gamma": 0.05535378726199269,
+              "population": 806176,
+              "initial_infected": 69,
+              "initial_exposed": 9,
+              "simulation_days": 261
+            }
+          },
+          "seed": 48,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "a54fbde7b432ac63d678a19333f3505ad82ace2163fe986d0711997d7110130d",
+            "values": {
+              "beta": 0.6896692785434424,
+              "sigma": 0.08024469236843289,
+              "gamma": 0.329132344853133,
+              "population": 219341,
+              "initial_infected": 45,
+              "initial_exposed": 52,
+              "simulation_days": 167
+            }
+          },
+          "seed": 49,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "0948d1607cfa9a318b3bfd6fea6bb3b2ba8314d6935332d1974d1914bd738dc9",
+            "values": {
+              "beta": 0.6943188877776265,
+              "sigma": 0.3376450258307159,
+              "gamma": 0.09195518298074604,
+              "population": 466405,
+              "initial_infected": 55,
+              "initial_exposed": 71,
+              "simulation_days": 341
+            }
+          },
+          "seed": 50,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "ad7a6250403e851ae2608e00d00c7da9c1793256cf69367f539ecf83a16e389b",
+            "values": {
+              "beta": 1.7600991054438055,
+              "sigma": 0.2117172366473824,
+              "gamma": 0.2927841496653855,
+              "population": 558609,
+              "initial_infected": 34,
+              "initial_exposed": 15,
+              "simulation_days": 153
+            }
+          },
+          "seed": 51,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "34f910044c76ad6cb071de51a602be4dc9f5867bb7add188099e480ea1db78a7",
+            "values": {
+              "beta": 1.1263337213546039,
+              "sigma": 0.41141809639520943,
+              "gamma": 0.24566738987341524,
+              "population": 150272,
+              "initial_infected": 2,
+              "initial_exposed": 32,
+              "simulation_days": 242
+            }
+          },
+          "seed": 52,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "16ac21b58fcbc47e7f5bc9860a2a3fe5c03146476bbf694b34a63a99f747120f",
+            "values": {
+              "beta": 0.1442490321584046,
+              "sigma": 0.14453571820631622,
+              "gamma": 0.4763796820305288,
+              "population": 874757,
+              "initial_infected": 86,
+              "initial_exposed": 76,
+              "simulation_days": 185
+            }
+          },
+          "seed": 53,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "f8e6c74ace7d4cbcf9cf41a0acdef2bd3f950295d9e8b051bc5b577ae9569253",
+            "values": {
+              "beta": 0.3732920221984386,
+              "sigma": 0.4798476974014193,
+              "gamma": 0.3350575444754213,
+              "population": 897488,
+              "initial_infected": 88,
+              "initial_exposed": 57,
+              "simulation_days": 266
+            }
+          },
+          "seed": 54,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "e0548703f2c897b7af1e3dee801ecc02428346a7041daed70bbd0676140f4139",
+            "values": {
+              "beta": 1.3722788826562464,
+              "sigma": 0.07256005918607117,
+              "gamma": 0.16235345038585364,
+              "population": 110697,
+              "initial_infected": 26,
+              "initial_exposed": 1,
+              "simulation_days": 228
+            }
+          },
+          "seed": 55,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "59069b296db8abef0c64ca625c9799a508738abe5035ed5157a8164acf8e3a43",
+            "values": {
+              "beta": 1.9891538804396987,
+              "sigma": 0.32191932322457434,
+              "gamma": 0.43433287437073886,
+              "population": 706238,
+              "initial_infected": 42,
+              "initial_exposed": 46,
+              "simulation_days": 301
+            }
+          },
+          "seed": 56,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        },
+        {
+          "entrypoint": "models.seir/baseline",
+          "bundle_ref": "test-bundle-v1",
+          "params": {
+            "param_id": "6975daf184fe5ff9adb192fdb648458de8dd0fdc6edd19327132dbbe8e3d40a1",
+            "values": {
+              "beta": 0.9402758198790252,
+              "sigma": 0.2238968208897859,
+              "gamma": 0.1754957230295986,
+              "population": 301962,
+              "initial_infected": 72,
+              "initial_exposed": 90,
+              "simulation_days": 128
+            }
+          },
+          "seed": 57,
+          "outputs": [
+            "compartments",
+            "incidence",
+            "prevalence",
+            "summary"
+          ],
+          "config": null
+        }
+      ]
+    }
+  ]
+}

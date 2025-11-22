@@ -1,0 +1,256 @@
+{
+  "_contracts_manifest": {
+    "bundle_digest": "e012c56d7e1e5524f141bd21c55341c28e306567dee32bbc8d35fd945d049d21",
+    "bundle_ref": "local://dev",
+    "models": {
+      "models.seir:StochasticSEIR": {
+        "entrypoint_base": "models.seir.StochasticSEIR",
+        "model_digest": "b90561ccc0e68244c2e169620601b2690bcbcf6af1a3141a7c558aa7a337c707",
+        "outputs": [
+          "compartments",
+          "incidence",
+          "prevalence",
+          "summary"
+        ],
+        "parameters": [
+          "beta",
+          "sigma",
+          "gamma",
+          "population",
+          "initial_infected",
+          "initial_exposed",
+          "simulation_days"
+        ],
+        "scenarios": [
+          "baseline",
+          "high_transmission",
+          "lockdown"
+        ]
+      },
+      "models.seir_age:AgeStratifiedSEIR": {
+        "entrypoint_base": "models.seir_age.AgeStratifiedSEIR",
+        "model_digest": "2a89faae562ffa7e963cc1a1bdbcc748e0ffe424c88e766c345dac49c7d593f2",
+        "outputs": [
+          "incidence_by_age",
+          "prevalence_by_age",
+          "summary_by_age",
+          "total_infections"
+        ],
+        "parameters": [
+          "beta",
+          "sigma",
+          "gamma",
+          "population",
+          "contact_matrix_scale",
+          "child_susceptibility",
+          "elderly_susceptibility",
+          "initial_infected_children",
+          "initial_infected_adults",
+          "initial_infected_elderly",
+          "simulation_days"
+        ],
+        "scenarios": [
+          "baseline",
+          "protect_elderly",
+          "school_closure"
+        ]
+      }
+    },
+    "version": 1
+  },
+  "abi": "model-entrypoint@1",
+  "builder": {
+    "name": "calabaria-cli",
+    "version": "0.1.0"
+  },
+  "bundle_id": "e012c56d7e1e5524f141bd21c55341c28e306567dee32bbc8d35fd945d049d21",
+  "models": {
+    "models.seir:StochasticSEIR": {
+      "class": "models.seir:StochasticSEIR",
+      "code_sig": "039bf81f6c13d5277b5b196209903eccd30c77c9cb2d79eb367d51388c6086e6",
+      "files": [
+        {
+          "path": "src/models/__init__.py",
+          "sha256": "00a4f462d6de655d4c0298b68ca341da0b33f71a1f1f69c4a6f66109e734f3f9"
+        },
+        {
+          "path": "src/models/seir.py",
+          "sha256": "a056ae5d507f47d50f42b7f6f65fc21f0830ced1b891a60f5568508ed092e3e6"
+        }
+      ],
+      "model_digest": "b90561ccc0e68244c2e169620601b2690bcbcf6af1a3141a7c558aa7a337c707",
+      "outputs": [
+        "compartments",
+        "incidence",
+        "prevalence",
+        "summary"
+      ],
+      "param_specs": [
+        {
+          "doc": "Transmission rate (contacts per day \u00d7 probability of transmission)",
+          "kind": "float",
+          "max": 2.0,
+          "min": 0.1,
+          "name": "beta"
+        },
+        {
+          "doc": "Incubation rate (1/latent period in days)",
+          "kind": "float",
+          "max": 0.5,
+          "min": 0.05,
+          "name": "sigma"
+        },
+        {
+          "doc": "Recovery rate (1/infectious period in days)",
+          "kind": "float",
+          "max": 0.5,
+          "min": 0.05,
+          "name": "gamma"
+        },
+        {
+          "doc": "Total population size",
+          "kind": "int",
+          "max": 1000000,
+          "min": 1000,
+          "name": "population"
+        },
+        {
+          "doc": "Initial number of infected individuals",
+          "kind": "int",
+          "max": 100,
+          "min": 1,
+          "name": "initial_infected"
+        },
+        {
+          "doc": "Initial number of exposed individuals",
+          "kind": "int",
+          "max": 100,
+          "min": 0,
+          "name": "initial_exposed"
+        },
+        {
+          "doc": "Number of days to simulate",
+          "kind": "int",
+          "max": 365,
+          "min": 100,
+          "name": "simulation_days"
+        }
+      ],
+      "scenarios": [
+        "baseline",
+        "high_transmission",
+        "lockdown"
+      ],
+      "space_sig": "cbb1d6196e65d57af893d4d7711382de8049fbec0e1f047757eb519a57023c95"
+    },
+    "models.seir_age:AgeStratifiedSEIR": {
+      "class": "models.seir_age:AgeStratifiedSEIR",
+      "code_sig": "106c9ae38d1931ebddf8293e78b25e406d632501dd173f9fcefc7b69d341be83",
+      "files": [
+        {
+          "path": "src/models/__init__.py",
+          "sha256": "00a4f462d6de655d4c0298b68ca341da0b33f71a1f1f69c4a6f66109e734f3f9"
+        },
+        {
+          "path": "src/models/seir_age.py",
+          "sha256": "384a279c74dc598e6f35108cd3c4105d2b84bf944114e8e4117615686623f85e"
+        }
+      ],
+      "model_digest": "2a89faae562ffa7e963cc1a1bdbcc748e0ffe424c88e766c345dac49c7d593f2",
+      "outputs": [
+        "incidence_by_age",
+        "prevalence_by_age",
+        "summary_by_age",
+        "total_infections"
+      ],
+      "param_specs": [
+        {
+          "doc": "Base transmission rate",
+          "kind": "float",
+          "max": 2.0,
+          "min": 0.1,
+          "name": "beta"
+        },
+        {
+          "doc": "Incubation rate (1/latent period in days)",
+          "kind": "float",
+          "max": 0.5,
+          "min": 0.05,
+          "name": "sigma"
+        },
+        {
+          "doc": "Recovery rate (1/infectious period in days)",
+          "kind": "float",
+          "max": 0.5,
+          "min": 0.05,
+          "name": "gamma"
+        },
+        {
+          "doc": "Total population size",
+          "kind": "int",
+          "max": 1000000,
+          "min": 10000,
+          "name": "population"
+        },
+        {
+          "doc": "Scale factor for contact matrix (controls mixing between age groups)",
+          "kind": "float",
+          "max": 2.0,
+          "min": 0.1,
+          "name": "contact_matrix_scale"
+        },
+        {
+          "doc": "Relative susceptibility of children compared to adults",
+          "kind": "float",
+          "max": 1.0,
+          "min": 0.3,
+          "name": "child_susceptibility"
+        },
+        {
+          "doc": "Relative susceptibility of elderly compared to adults",
+          "kind": "float",
+          "max": 1.5,
+          "min": 0.8,
+          "name": "elderly_susceptibility"
+        },
+        {
+          "doc": "Initial infections in children",
+          "kind": "int",
+          "max": 50,
+          "min": 0,
+          "name": "initial_infected_children"
+        },
+        {
+          "doc": "Initial infections in adults",
+          "kind": "int",
+          "max": 100,
+          "min": 1,
+          "name": "initial_infected_adults"
+        },
+        {
+          "doc": "Initial infections in elderly",
+          "kind": "int",
+          "max": 20,
+          "min": 0,
+          "name": "initial_infected_elderly"
+        },
+        {
+          "doc": "Number of days to simulate",
+          "kind": "int",
+          "max": 365,
+          "min": 100,
+          "name": "simulation_days"
+        }
+      ],
+      "scenarios": [
+        "baseline",
+        "protect_elderly",
+        "school_closure"
+      ],
+      "space_sig": "afd56b2e678a291692e1bc0719119cc64067a647ac82564724b1cf33171465c1"
+    }
+  },
+  "requires_python": "",
+  "schema": 1,
+  "uv_lock_sha256": "65397b8460d59d0154b44daf089043a413db315759a6e83284049f6b8faaee76"
+}

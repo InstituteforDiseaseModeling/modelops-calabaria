@@ -1,5 +1,9 @@
 # Model Manifest System Design
 
+> **Legacy Notice:** This document captures the deprecated Calabaria manifest/discovery flow.
+> The modern CLI only supports sampling, calibration, and diagnostics commands; bundle manifests
+> are now managed entirely by `modelops-bundle`.
+
 The model manifest system provides **deterministic, content-addressed bundle
 identification** for Calabaria models. It creates a cryptographic fingerprint
 of models and their dependencies, enabling reproducible deployments and version

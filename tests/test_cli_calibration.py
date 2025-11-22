@@ -1,7 +1,9 @@
 """Tests for calibration CLI commands."""
 
+import builtins
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -124,3 +126,36 @@ def test_optuna_errors_without_registry():
                     parameters="beta:0.1:0.5,gamma:0.05:0.2",
                     project_root=str(root),
                 )
+
+
+@patch("modelops_calabaria.cli.calibration.load_symbol", return_value=MockModel)
+def test_optuna_target_set_without_yaml(mock_load_symbol, monkeypatch):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _write_registry(root)
+        observed = root / "data.csv"
+        observed.write_text("value\n1\n")
+        output_path = root / "custom.json"
+
+        real_import = builtins.__import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "yaml":
+                raise ModuleNotFoundError("yaml unavailable")
+            return real_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.delitem(sys.modules, "yaml", raising=False)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        optuna_command(
+            model_class="sir",
+            observed_data=str(observed),
+            parameters="beta:0.1:0.5,gamma:0.05:0.2",
+            target_set="all_targets",
+            output=str(output_path),
+            project_root=str(root),
+        )
+
+        data = json.loads(output_path.read_text())
+        assert data["metadata"]["target_set"] == "all_targets"
+        assert data["metadata"]["target_ids"] == ["incidence", "prevalence"]

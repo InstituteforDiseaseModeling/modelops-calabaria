@@ -205,12 +205,18 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
             outputs=None         # Default outputs
         )
 
+        # Debug: Log wire function result
+        logger.info(f"DEBUG modelops_wire: wire_fn returned WireResponse with output keys: {list(result.outputs.keys())}")
+
         # Convert WireResponse to Dict[str, bytes]
         # Note: result.outputs already contains bytes (Arrow IPC format)
         outputs = {}
         for name, table_bytes in result.outputs.items():
             # Already serialized as bytes, no need to call write_parquet
             outputs[name] = table_bytes
+
+        # Debug: Log before adding metadata
+        logger.info(f"DEBUG modelops_wire: outputs dict before metadata: {list(outputs.keys())}")
 
         # Add metadata
         outputs["metadata"] = _json_dumps({
@@ -220,6 +226,7 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
             "model_digest": entry.model_digest
         })
 
+        logger.info(f"DEBUG modelops_wire: final outputs dict keys: {list(outputs.keys())}")
         logger.info(f"Wire function returning {len(outputs)} artifacts")
         return outputs
 
