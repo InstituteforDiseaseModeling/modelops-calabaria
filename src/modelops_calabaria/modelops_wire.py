@@ -190,51 +190,27 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
         }
     }
 
-    try:
-        # Create entry record from manifest using full entrypoint
-        entry = entry_from_manifest(full_entrypoint, manifest)
+    # Create entry record from manifest using full entrypoint
+    entry = entry_from_manifest(full_entrypoint, manifest)
 
-        # Create wire function for this model
-        wire_fn = make_wire(entry)
+    # Create wire function for this model (let ImportError/TypeError propagate)
+    wire_fn = make_wire(entry)
 
-        # Execute the wire function with keyword arguments
-        result = wire_fn(
-            params_M=params,      # M-space parameters
-            seed=seed,           # Random seed
-            scenario_stack=(),   # Empty scenario stack for now
-            outputs=None         # Default outputs
-        )
+    # Execute the wire function
+    result = wire_fn(
+        params_M=params,
+        seed=seed,
+        scenario_stack=(),
+        outputs=None,
+    )
 
-        # Convert WireResponse to Dict[str, bytes]
-        # Note: result.outputs already contains bytes (Arrow IPC format)
-        outputs = {}
-        for name, table_bytes in result.outputs.items():
-            # Already serialized as bytes, no need to call write_parquet
-            outputs[name] = table_bytes
-
-        # Add metadata
-        outputs["metadata"] = _json_dumps({
-            "entrypoint": entrypoint,
-            "seed": seed,
-            "params": params,
-            "model_digest": entry.model_digest
-        })
-
-        logger.info(f"Wire function returning {len(outputs)} artifacts")
-        return outputs
-
-    except Exception as e:
-        logger.error(f"Wire execution failed: {e}", exc_info=True)
-        # Return error in the format subprocess_runner expects
-        import traceback
-        error_info = {
-            "error": str(e),
-            "type": type(e).__name__,
-            "entrypoint": entrypoint,
-            "traceback": traceback.format_exc()
-        }
-        # Return as base64-encoded JSON (matching subprocess_runner error format)
-        import base64
-        return {
-            "error": base64.b64encode(_json_dumps(error_info)).decode("ascii")
-        }
+    # Convert WireResponse to Dict[str, bytes]
+    outputs = {name: table_bytes for name, table_bytes in result.outputs.items()}
+    outputs["metadata"] = _json_dumps({
+        "entrypoint": entrypoint,
+        "seed": seed,
+        "params": params,
+        "model_digest": entry.model_digest,
+    })
+    logger.info(f"Wire function returning {len(outputs)} artifacts")
+    return outputs
