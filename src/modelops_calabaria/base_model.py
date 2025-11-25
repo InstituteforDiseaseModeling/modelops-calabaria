@@ -228,8 +228,8 @@ class BaseModel(ABC):
                     f"Framework adds this automatically."
                 )
 
-            # Add seed column
-            df = df.with_columns(pl.lit(seed).alias(SEED_COL))
+            # Add seed column (explicitly use Int64 to match numpy-based columns)
+            df = df.with_columns(pl.lit(seed, dtype=pl.Int64).alias(SEED_COL))
             results[name] = df
 
         return results
