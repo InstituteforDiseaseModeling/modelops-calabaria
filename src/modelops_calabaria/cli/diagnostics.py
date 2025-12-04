@@ -388,16 +388,16 @@ def page_pair_contours(pdf: PdfPages,
             xa, xb, Z, is_grid = try_pivot_pair_to_grid(df, a, b, "dloss")
 
             if is_grid:
-                cs = ax.contourf(xa, xb, Z.T, levels=15, cmap='viridis', alpha=0.9)
-                ax.contour(xa, xb, Z.T, levels=15, colors='black', alpha=0.2, linewidths=0.5)
+                cs = ax.contourf(xa, xb, Z, levels=15, cmap='viridis', alpha=0.9)
+                ax.contour(xa, xb, Z, levels=15, colors='black', alpha=0.2, linewidths=0.5)
 
                 # Add threshold contour if specified
                 if threshold > 0:
                     # Plot special contour at threshold
-                    ax.contour(xa, xb, Z.T, levels=[threshold], colors='red',
+                    ax.contour(xa, xb, Z, levels=[threshold], colors='red',
                               linewidths=1.5, linestyles='solid', alpha=0.8)
                     # Also shade the region below threshold
-                    ax.contourf(xa, xb, Z.T, levels=[0, threshold],
+                    ax.contourf(xa, xb, Z, levels=[0, threshold],
                                colors=['red'], alpha=0.2)
             else:
                 cs = ax.tricontourf(xa, xb, Z, levels=15, cmap='viridis')
