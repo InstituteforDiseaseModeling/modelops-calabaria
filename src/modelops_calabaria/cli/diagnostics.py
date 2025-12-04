@@ -339,9 +339,6 @@ def page_profiles(pdf: PdfPages,
         ax.scatter(rx, ry, s=8, alpha=0.2, color='gray', label='Data')
         ax.axvline(x_opt[param_cols.index(p)], ls="--", lw=1, color='red', alpha=0.7, label='Optimum')
 
-        # χ² reference line for 95% CI (Δloss = 1.92 for 1 param)
-        ax.axhline(1.92, ls=":", lw=1, color='black', alpha=0.5, label='95% CI')
-
         param_name = p.replace("param_", "")
         ax.set_title(param_name, fontsize=11, fontweight='bold', loc='center')
         ax.set_xlabel("Value")
