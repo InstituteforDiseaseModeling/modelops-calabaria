@@ -1,54 +1,92 @@
-"""Factory functions for common evaluation strategies."""
+"""Factory functions for common loss evaluation strategies."""
 
 from .aggregate import IdentityAggregator, MeanAcrossReplicates
-from .composable import Evaluator
+from .composable import LossEvaluator
 from .loss.base import SquaredErrorLoss
-from .loss.nll import BetaBinomialNLL
 from .reduce import MeanGroupedByReplicate, MeanReducer
 
 
-def mean_of_per_replicate_mse(col: str) -> Evaluator:
+def annealed_mse(col: str, weight: float = 1.0) -> LossEvaluator:
     """
-    Computes MSE per replicate, then returns the mean of those replicate-level losses.
-    WARNING: This is a *biased estimator*, and will penalize simulator variance across seeds.
+    Annealed (replicate-mean) MSE.
 
-    loss = mean( MSE(rep_0), MSE(rep_1), ... )
-    """
-    return Evaluator(
-        aggregator=IdentityAggregator(),
-        loss_fn=SquaredErrorLoss(col=col),
-        reducer=MeanGroupedByReplicate(),
-    )
+    J(θ) ≈ E_ε[(y - sim)²] = mean of per-replicate MSE.
 
+    This penalizes simulator variance (includes variance penalty term).
+    With R replicates:
+        J = (1/R) Σ_r (1/N) Σ_i (y_i - sim_i^(r))²
 
-def replicate_mean_mse(col: str) -> Evaluator:
-    """
-    Averages the simulated values across replicates first, then computes MSE.
+    This is a biased estimator that includes a variance penalty. The loss includes
+    both the squared bias and the simulator variance due to Jensen's inequality:
+        E_ε[(y - sim)²] ≥ (y - E_ε[sim])²
 
-    loss = MSE( mean(sim_rep_0, sim_rep_1, ...) vs obs )
-    """
-    return Evaluator(
-        aggregator=MeanAcrossReplicates([col]),
-        loss_fn=SquaredErrorLoss(col=col),
-        reducer=MeanReducer(),
-    )
-
-
-def beta_binomial_nll(x_col: str, n_col: str, prior=(1, 1)) -> Evaluator:
-    """
-    Beta-binomial negative log-likelihood evaluation.
+    For calibration targeting observation-level mean without variance penalty,
+    use mean_signal_mse instead.
 
     Parameters
     ----------
-    x_col : str
-        Column name for successes
-    n_col : str
-        Column name for trials
-    prior : tuple
-        Beta prior parameters (alpha, beta)
+    col : str
+        Column name to evaluate
+    weight : float, optional
+        Weight for this target in multi-target calibration (default: 1.0)
+
+    Returns
+    -------
+    LossEvaluator
+        Configured evaluator for annealed MSE
     """
-    return Evaluator(
+    return LossEvaluator(
         aggregator=IdentityAggregator(),
-        loss_fn=BetaBinomialNLL(x_col=x_col, n_col=n_col, prior=prior),
+        loss_fn=SquaredErrorLoss(col=col),
         reducer=MeanGroupedByReplicate(),
+        weight=weight,
+        name=f"annealed_mse[{col}]",
     )
+
+
+def mean_signal_mse(col: str, weight: float = 1.0) -> LossEvaluator:
+    """
+    Mean-signal MSE.
+
+    J(θ) ≈ (y - E_ε[sim])², approximated by first averaging sim across replicates.
+
+    This targets the observation-level mean without penalizing simulator variance.
+    With R replicates:
+        J = (1/N) Σ_i (y_i - (1/R) Σ_r sim_i^(r))²
+
+    This approximates the squared error between observations and the expected value
+    of the simulator output (integrated over simulator noise ε). With large R, this
+    estimates the loss without variance penalty.
+
+    For calibration including variance penalty, use annealed_mse instead.
+
+    Parameters
+    ----------
+    col : str
+        Column name to evaluate
+    weight : float, optional
+        Weight for this target in multi-target calibration (default: 1.0)
+
+    Returns
+    -------
+    LossEvaluator
+        Configured evaluator for mean-signal MSE
+    """
+    return LossEvaluator(
+        aggregator=MeanAcrossReplicates([col]),
+        loss_fn=SquaredErrorLoss(col=col),
+        reducer=MeanReducer(),
+        weight=weight,
+        name=f"mean_signal_mse[{col}]",
+    )
+
+
+# Backward compatibility aliases (deprecated)
+def mean_of_per_replicate_mse(col: str) -> LossEvaluator:
+    """Deprecated: Use annealed_mse instead."""
+    return annealed_mse(col)
+
+
+def replicate_mean_mse(col: str) -> LossEvaluator:
+    """Deprecated: Use mean_signal_mse instead."""
+    return mean_signal_mse(col)
