@@ -15,7 +15,6 @@ from .loglik_fns import (
     binomial_loglik_per_rep,
 )
 from .loss.base import LossFunction, SquaredErrorLoss
-from .loss.nll import BetaBinomialNLL, BinomialNLL
 from .reduce import LossReducer, MeanGroupedByReplicate, MeanReducer
 
 __all__ = [
@@ -33,8 +32,6 @@ __all__ = [
     # Loss functions
     "LossFunction",
     "SquaredErrorLoss",
-    "BetaBinomialNLL",
-    "BinomialNLL",
     # Reducers
     "LossReducer",
     "MeanReducer",
