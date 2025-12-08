@@ -18,9 +18,49 @@ coverage.xml
 # Virtual environments
 .venv
 
-# Other stuff
+# Data files (test artifacts, outputs, etc)
+*.csv
+*.parquet
+*.pkl
+*.pickle
+*.feather
+*.arrow
+
+# JSON files (except package configs)
+*.json
+!package.json
+!pyproject.toml
+!**/package.json
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Scratch/planning docs
+*_PLAN.md
+*_TODO.md
+SCRATCH*.md
+GIT_CLEANUP_LIST.md
+
+# Claude Code
 .claude/settings.local.json
 .python-version
+
+# Old design docs
 Calabaria-Pure-Functional-Design.md
 Calabaria_Design_v2.md
 uv.lock
