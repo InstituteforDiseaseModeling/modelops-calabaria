@@ -4,7 +4,7 @@
 import sys
 import logging
 from modelops_calabaria.calibration import create_algorithm_adapter
-from modelops_calabaria.calibration.base import ParameterSpec
+from modelops_calabaria.parameters import ParameterSpec
 from modelops_contracts import TrialResult, TrialStatus
 
 # Set up logging
