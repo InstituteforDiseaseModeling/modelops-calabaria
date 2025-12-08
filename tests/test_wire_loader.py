@@ -55,7 +55,7 @@ class TestEntryRecord:
     def test_create_entry_record(self):
         """Should create immutable EntryRecord."""
         param_spec = SerializedParameterSpec(
-            name="beta", min=0.1, max=1.0, kind="float", doc="Transmission rate"
+            name="beta", lower=0.1, upper=1.0, kind="float", doc="Transmission rate"
         )
 
         entry = EntryRecord(
@@ -102,15 +102,15 @@ class TestEntryFromManifest:
                     "param_specs": [
                         {
                             "name": "beta",
-                            "min": 0.1,
-                            "max": 1.0,
+                            "lower": 0.1,
+                            "upper": 1.0,
                             "kind": "float",
                             "doc": "Transmission rate"
                         },
                         {
                             "name": "gamma",
-                            "min": 0.05,
-                            "max": 0.5,
+                            "lower": 0.05,
+                            "upper": 0.5,
                             "kind": "float",
                             "doc": "Recovery rate"
                         }
@@ -148,10 +148,10 @@ class TestMakeWire:
         # Create entry record
         param_specs = (
             SerializedParameterSpec(
-                name="beta", min=0.1, max=1.0, kind="float", doc="Transmission rate"
+                name="beta", lower=0.1, upper=1.0, kind="float", doc="Transmission rate"
             ),
             SerializedParameterSpec(
-                name="gamma", min=0.05, max=0.5, kind="float", doc="Recovery rate"
+                name="gamma", lower=0.05, upper=0.5, kind="float", doc="Recovery rate"
             )
         )
 
@@ -219,7 +219,7 @@ class TestMakeWire:
         """Should validate scenarios exist in model."""
         param_specs = (
             SerializedParameterSpec(
-                name="beta", min=0.1, max=1.0, kind="float", doc="Transmission rate"
+                name="beta", lower=0.1, upper=1.0, kind="float", doc="Transmission rate"
             ),
         )
 
@@ -245,7 +245,7 @@ class TestMakeWire:
         """Should filter outputs when requested."""
         param_specs = (
             SerializedParameterSpec(
-                name="beta", min=0.1, max=1.0, kind="float", doc="Transmission rate"
+                name="beta", lower=0.1, upper=1.0, kind="float", doc="Transmission rate"
             ),
         )
 
@@ -291,8 +291,8 @@ class TestMakeWireFromManifest:
                     "param_specs": [
                         {
                             "name": "beta",
-                            "min": 0.1,
-                            "max": 1.0,
+                            "lower": 0.1,
+                            "upper": 1.0,
                             "kind": "float",
                             "doc": "Transmission rate"
                         }
@@ -344,7 +344,7 @@ class TestStatelessExecution:
         """Should create fresh model instance for each call."""
         param_specs = (
             SerializedParameterSpec(
-                name="beta", min=0.1, max=1.0, kind="float", doc="Transmission rate"
+                name="beta", lower=0.1, upper=1.0, kind="float", doc="Transmission rate"
             ),
         )
 

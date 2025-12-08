@@ -50,16 +50,16 @@ class SobolSampler(SamplingStrategy):
         """
         if spec.kind == "choice":
             # Map to discrete choice
-            choices = spec.min  # min holds the choices for choice params
+            choices = spec.lower  # min holds the choices for choice params
             index = min(int(value * len(choices)), len(choices) - 1)
             return choices[index]
         elif spec.kind in ["int", "integer"]:
             # Map to integer range
-            scaled = spec.min + value * (spec.max - spec.min)
+            scaled = spec.lower + value * (spec.upper - spec.lower)
             return int(round(scaled))
         elif spec.kind == "float":
             # Map to float range
-            return spec.min + value * (spec.max - spec.min)
+            return spec.lower + value * (spec.upper - spec.lower)
         elif spec.kind == "bool":
             # Map to boolean
             return value >= 0.5

@@ -7,7 +7,8 @@ of calibration algorithm adapters based on configuration.
 import logging
 from typing import Any, Dict
 
-from modelops_calabaria.calibration.base import AlgorithmAdapter, ParameterSpec
+from modelops_calabaria.calibration.base import AlgorithmAdapter
+from modelops_calabaria.parameters import ParameterSpec
 from modelops_calabaria.calibration.optuna_adapter import OptunaAdapter
 
 logger = logging.getLogger(__name__)

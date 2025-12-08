@@ -29,7 +29,7 @@ class TestAbstractEnforcement:
 
     def test_cannot_instantiate_without_implementing_abstract(self):
         """Test that BaseModel cannot be instantiated directly."""
-        space = ParameterSpace([ParameterSpec("x", 0, 1)])
+        space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
 
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
             BaseModel(space)
@@ -40,7 +40,7 @@ class TestAbstractEnforcement:
             def run_sim(self, state, seed):
                 return {}
 
-        space = ParameterSpace([ParameterSpec("x", 0, 1)])
+        space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
             IncompleteModel(space)
 
@@ -50,7 +50,7 @@ class TestAbstractEnforcement:
             def build_sim(self, params, config):
                 return {}
 
-        space = ParameterSpace([ParameterSpec("x", 0, 1)])
+        space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
             IncompleteModel(space)
 
@@ -208,7 +208,7 @@ class TestParameterValidation:
         model = SimpleTestModel()
 
         # Create ParameterSet for different space
-        other_space = ParameterSpace([ParameterSpec("x", 0, 1)])
+        other_space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
         other_params = ParameterSet(other_space, {"x": 0.5})
 
         with pytest.raises(ValueError, match="different parameter space"):
@@ -318,7 +318,7 @@ class TestOutputExtraction:
         """Test that extractors cannot add SEED_COL themselves."""
         class BadModel(BaseModel):
             def __init__(self):
-                space = ParameterSpace([ParameterSpec("x", 0, 1)])
+                space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
                 super().__init__(space)
 
             def build_sim(self, params, config):
@@ -345,7 +345,7 @@ class TestOutputExtraction:
         """Test that extractors must return DataFrame."""
         class BadModel(BaseModel):
             def __init__(self):
-                space = ParameterSpace([ParameterSpec("x", 0, 1)])
+                space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
                 super().__init__(space)
 
             def build_sim(self, params, config):

@@ -13,8 +13,8 @@ class TestGridSampler:
     def test_grid_basic(self):
         """Test basic grid generation."""
         specs = [
-            ParameterSpec(name="x", kind="float", min=0.0, max=1.0),
-            ParameterSpec(name="y", kind="float", min=0.0, max=1.0),
+            ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0),
+            ParameterSpec(name="y", kind="float", lower=0.0, upper=1.0),
         ]
         space = ParameterSpace(specs)
         sampler = GridSampler(space, n_points_per_param=3)
@@ -34,8 +34,8 @@ class TestGridSampler:
     def test_grid_integer_params(self):
         """Test grid with integer parameters."""
         specs = [
-            ParameterSpec(name="n", kind="int", min=1, max=5),
-            ParameterSpec(name="m", kind="int", min=10, max=20),
+            ParameterSpec(name="n", kind="int", lower=1, upper=5),
+            ParameterSpec(name="m", kind="int", lower=10, upper=20),
         ]
         space = ParameterSpace(specs)
         sampler = GridSampler(space, n_points_per_param=3)
@@ -52,8 +52,8 @@ class TestGridSampler:
     def test_grid_mixed_types(self):
         """Test grid with mixed parameter types."""
         specs = [
-            ParameterSpec(name="rate", kind="float", min=0.1, max=1.0),
-            ParameterSpec(name="count", kind="int", min=1, max=10),
+            ParameterSpec(name="rate", kind="float", lower=0.1, upper=1.0),
+            ParameterSpec(name="count", kind="int", lower=1, upper=10),
         ]
         space = ParameterSpace(specs)
         sampler = GridSampler(space, n_points_per_param=2)
@@ -67,7 +67,7 @@ class TestGridSampler:
 
     def test_grid_method_name(self):
         """Test method name is correct."""
-        specs = [ParameterSpec(name="x", kind="float", min=0.0, max=1.0)]
+        specs = [ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0)]
         space = ParameterSpace(specs)
         sampler = GridSampler(space)
         assert sampler.method_name() == "grid"
@@ -79,8 +79,8 @@ class TestSobolSampler:
     def test_sobol_basic(self):
         """Test basic Sobol sequence generation."""
         specs = [
-            ParameterSpec(name="x", kind="float", min=0.0, max=1.0),
-            ParameterSpec(name="y", kind="float", min=0.0, max=1.0),
+            ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0),
+            ParameterSpec(name="y", kind="float", lower=0.0, upper=1.0),
         ]
         space = ParameterSpace(specs)
         sampler = SobolSampler(space, scramble=False, seed=42)
@@ -99,8 +99,8 @@ class TestSobolSampler:
     def test_sobol_deterministic(self):
         """Test Sobol sequence is deterministic with same seed."""
         specs = [
-            ParameterSpec(name="x", kind="float", min=0.0, max=1.0),
-            ParameterSpec(name="y", kind="float", min=0.0, max=1.0),
+            ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0),
+            ParameterSpec(name="y", kind="float", lower=0.0, upper=1.0),
         ]
         space = ParameterSpace(specs)
 
@@ -118,7 +118,7 @@ class TestSobolSampler:
     def test_sobol_scrambling_different(self):
         """Test scrambled Sobol sequences are different with different seeds."""
         specs = [
-            ParameterSpec(name="x", kind="float", min=0.0, max=1.0),
+            ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0),
         ]
         space = ParameterSpace(specs)
 
@@ -139,8 +139,8 @@ class TestSobolSampler:
     def test_sobol_integer_params(self):
         """Test Sobol with integer parameters."""
         specs = [
-            ParameterSpec(name="n", kind="int", min=1, max=100),
-            ParameterSpec(name="m", kind="int", min=1000, max=2000),
+            ParameterSpec(name="n", kind="int", lower=1, upper=100),
+            ParameterSpec(name="m", kind="int", lower=1000, upper=2000),
         ]
         space = ParameterSpace(specs)
         sampler = SobolSampler(space, scramble=False, seed=42)
@@ -155,7 +155,7 @@ class TestSobolSampler:
 
     def test_sobol_method_name(self):
         """Test method name is correct."""
-        specs = [ParameterSpec(name="x", kind="float", min=0.0, max=1.0)]
+        specs = [ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0)]
         space = ParameterSpace(specs)
         sampler = SobolSampler(space)
         assert sampler.method_name() == "sobol"
@@ -164,7 +164,7 @@ class TestSobolSampler:
         """Test that Sobol requires scipy."""
         # This test will only work if scipy is installed
         # We're testing that the import works, not that it fails
-        specs = [ParameterSpec(name="x", kind="float", min=0.0, max=1.0)]
+        specs = [ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0)]
         space = ParameterSpace(specs)
 
         # Should not raise ImportError since we have scipy installed
@@ -175,8 +175,8 @@ class TestSobolSampler:
     def test_sobol_convergence_estimate(self):
         """Test convergence estimation."""
         specs = [
-            ParameterSpec(name="x", kind="float", min=0.0, max=1.0),
-            ParameterSpec(name="y", kind="float", min=0.0, max=1.0),
+            ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0),
+            ParameterSpec(name="y", kind="float", lower=0.0, upper=1.0),
         ]
         space = ParameterSpace(specs)
         sampler = SobolSampler(space)
@@ -196,8 +196,8 @@ class TestSamplingIntegration:
     def test_numpy_type_conversion(self):
         """Test that numpy types are properly handled."""
         specs = [
-            ParameterSpec(name="x", kind="float", min=0.0, max=1.0),
-            ParameterSpec(name="n", kind="int", min=1, max=10),
+            ParameterSpec(name="x", kind="float", lower=0.0, upper=1.0),
+            ParameterSpec(name="n", kind="int", lower=1, upper=10),
         ]
         space = ParameterSpace(specs)
         sampler = SobolSampler(space)
@@ -225,8 +225,8 @@ class TestSamplingIntegration:
     def test_generate_tasks(self):
         """Test SimBatch generation from sampler."""
         specs = [
-            ParameterSpec(name="beta", kind="float", min=0.1, max=2.0),
-            ParameterSpec(name="gamma", kind="float", min=0.05, max=0.5),
+            ParameterSpec(name="beta", kind="float", lower=0.1, upper=2.0),
+            ParameterSpec(name="gamma", kind="float", lower=0.05, upper=0.5),
         ]
         space = ParameterSpace(specs)
         sampler = GridSampler(space, n_points_per_param=2)

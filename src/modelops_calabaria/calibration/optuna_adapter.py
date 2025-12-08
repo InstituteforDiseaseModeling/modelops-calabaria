@@ -19,8 +19,8 @@ from modelops_contracts.types import (
 from modelops_calabaria.calibration.base import (
     AlgorithmAdapter,
     InfrastructureRequirements,
-    ParameterSpec,
 )
+from modelops_calabaria.parameters import ParameterSpec
 
 logger = logging.getLogger(__name__)
 

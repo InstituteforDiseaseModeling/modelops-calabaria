@@ -44,8 +44,8 @@ class SerializedParameterSpec:
     and contains no callable transforms or complex types.
     """
     name: str
-    min: Union[int, float]
-    max: Union[int, float]
+    lower: Union[int, float]
+    upper: Union[int, float]
     kind: str  # "float" or "int"
     doc: str = ""
 
@@ -53,8 +53,8 @@ class SerializedParameterSpec:
         """Validate specification."""
         if self.kind not in ("float", "int"):
             raise ValueError(f"Invalid kind: {self.kind}")
-        if self.min > self.max:
-            raise ValueError(f"Invalid bounds: {self.min} > {self.max}")
+        if self.lower > self.upper:
+            raise ValueError(f"Invalid bounds: {self.lower} > {self.upper}")
 
     def to_json(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict."""
@@ -71,16 +71,16 @@ class SerializedParameterSpec:
         """Convert from regular ParameterSpec."""
         # Preserve integer precision for int parameters
         if spec.kind == "int":
-            min_val = int(spec.min)
-            max_val = int(spec.max)
+            lower_val = int(spec.lower)
+            upper_val = int(spec.upper)
         else:
-            min_val = float(spec.min)
-            max_val = float(spec.max)
+            lower_val = float(spec.lower)
+            upper_val = float(spec.upper)
 
         return cls(
             name=spec.name,
-            min=min_val,
-            max=max_val,
+            lower=lower_val,
+            upper=upper_val,
             kind=spec.kind,
             doc=spec.doc
         )

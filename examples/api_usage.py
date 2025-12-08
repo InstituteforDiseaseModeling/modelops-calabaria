@@ -50,7 +50,7 @@ def main() -> None:
             model_space = Model.parameter_space()
             print(f"\nLoaded {Model.__name__} with {len(model_space.specs)} parameters:")
             for spec in model_space.specs[:5]:
-                rng = f"[{spec.min}, {spec.max}]" if spec.min != spec.max else f"= {spec.min}"
+                rng = f"[{spec.lower}, {spec.upper}]" if spec.lower != spec.upper else f"= {spec.lower}"
                 print(f"  • {spec.name} {rng}")
         except Exception as exc:
             print(f"\nCould not load demo model: {exc}")

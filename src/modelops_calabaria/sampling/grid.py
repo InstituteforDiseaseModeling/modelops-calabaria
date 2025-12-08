@@ -37,19 +37,19 @@ class GridSampler(SamplingStrategy):
         """
         if spec.kind == "choice":
             # For discrete parameters, use all values
-            return list(spec.min)  # min holds the choices for choice params
+            return list(spec.lower)  # min holds the choices for choice params
         elif spec.kind in ["int", "integer"]:
             if n_points is None:
                 # Default to 3 points for integers
-                n_points = min(3, int(spec.max - spec.min + 1))
+                n_points = min(3, int(spec.upper - spec.lower + 1))
             # Generate evenly spaced integers
-            values = np.linspace(spec.min, spec.max, n_points)
+            values = np.linspace(spec.lower, spec.upper, n_points)
             return [int(round(v)) for v in values]
         elif spec.kind == "float":
             if n_points is None:
                 n_points = 3  # Default to 3 points for floats
             # Generate evenly spaced floats
-            return list(np.linspace(spec.min, spec.max, n_points))
+            return list(np.linspace(spec.lower, spec.upper, n_points))
         elif spec.kind == "bool":
             return [False, True]
         else:

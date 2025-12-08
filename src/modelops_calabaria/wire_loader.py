@@ -112,8 +112,8 @@ def make_wire(entry: EntryRecord) -> Callable:
     param_specs = [
         ParameterSpec(
             name=spec.name,
-            min=int(spec.min) if spec.kind == "int" else spec.min,
-            max=int(spec.max) if spec.kind == "int" else spec.max,
+            lower=int(spec.lower) if spec.kind == "int" else spec.lower,
+            upper=int(spec.upper) if spec.kind == "int" else spec.upper,
             kind=spec.kind,
             doc=spec.doc
         )

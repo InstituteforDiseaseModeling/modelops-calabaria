@@ -31,22 +31,6 @@ class InfrastructureRequirements:
     secrets: Set[str] = field(default_factory=set)
 
 
-@dataclass
-class ParameterSpec:
-    """Specification for a single parameter.
-
-    Attributes:
-        name: Parameter name
-        lower: Lower bound (inclusive)
-        upper: Upper bound (inclusive)
-        transform: Optional transform (e.g., "log", "logit")
-    """
-    name: str
-    lower: float
-    upper: float
-    transform: Optional[str] = None
-
-
 class AlgorithmAdapter(AdaptiveAlgorithm, ABC):
     """Base adapter for all calibration algorithms.
 

@@ -26,8 +26,8 @@ class TestParameterSpec:
         """Test creating a float parameter specification."""
         spec = ParameterSpec("beta", 0.0, 1.0, "float", "Transmission rate")
         assert spec.name == "beta"
-        assert spec.min == 0.0
-        assert spec.max == 1.0
+        assert spec.lower == 0.0
+        assert spec.upper == 1.0
         assert spec.kind == "float"
         assert spec.doc == "Transmission rate"
 
@@ -35,8 +35,8 @@ class TestParameterSpec:
         """Test creating an integer parameter specification."""
         spec = ParameterSpec("population", 100, 10000, "int", "Population size")
         assert spec.name == "population"
-        assert spec.min == 100
-        assert spec.max == 10000
+        assert spec.lower == 100
+        assert spec.upper == 10000
         assert spec.kind == "int"
 
     def test_invalid_kind_raises(self):
@@ -45,9 +45,9 @@ class TestParameterSpec:
             ParameterSpec("param", 0, 1, "string")
 
     def test_min_greater_than_max_raises(self):
-        """Test that min > max raises error."""
-        with pytest.raises(ValueError, match="min .* > max"):
-            ParameterSpec("param", 10.0, 5.0)
+        """Test that lower > upper raises error."""
+        with pytest.raises(ValueError, match="lower .* > upper"):
+            ParameterSpec("param", lower=10.0, upper=5.0)
 
     def test_int_spec_requires_int_bounds(self):
         """Test that integer specs require integer bounds."""
@@ -77,11 +77,43 @@ class TestParameterSpec:
 
     def test_spec_is_immutable(self):
         """Test that ParameterSpec is immutable."""
-        spec = ParameterSpec("beta", 0.0, 1.0)
+        spec = ParameterSpec("beta", lower=0.0, upper=1.0)
         with pytest.raises(AttributeError):
             spec.name = "gamma"
         with pytest.raises(AttributeError):
-            spec.min = -1.0
+            spec.lower = -1.0
+
+    def test_create_spec_with_no_transform(self):
+        """Test creating parameter with no transform (default)."""
+        spec = ParameterSpec("beta", lower=0.0, upper=1.0)
+        assert spec.transform is None
+
+    def test_create_spec_with_log_transform(self):
+        """Test creating parameter with log transform."""
+        spec = ParameterSpec("rate", lower=0.01, upper=10.0, transform="log")
+        assert spec.transform == "log"
+
+    def test_create_spec_with_logit_transform(self):
+        """Test creating parameter with logit transform."""
+        spec = ParameterSpec("prob", lower=0.0, upper=1.0, transform="logit")
+        assert spec.transform == "logit"
+
+    def test_invalid_transform_raises(self):
+        """Test that invalid transform string raises error."""
+        with pytest.raises(ValueError, match="transform must be"):
+            ParameterSpec("param", lower=0, upper=1, transform="invalid")
+
+    def test_log_transform_with_negative_bounds_allowed(self):
+        """Log transform validation happens at usage time, not spec creation."""
+        # This should NOT raise - validation happens when transform is applied
+        spec = ParameterSpec("param", lower=-1.0, upper=1.0, transform="log")
+        assert spec.transform == "log"
+
+    def test_transform_field_immutable(self):
+        """Test that transform field cannot be modified (frozen dataclass)."""
+        spec = ParameterSpec("param", lower=0, upper=1, transform="log")
+        with pytest.raises(AttributeError):
+            spec.transform = "logit"
 
 
 class TestParameterSpace:
@@ -101,36 +133,47 @@ class TestParameterSpace:
     def test_duplicate_names_raise(self):
         """Test that duplicate parameter names raise error."""
         specs = [
-            ParameterSpec("beta", 0.0, 1.0),
-            ParameterSpec("beta", 0.0, 2.0),  # Duplicate name
+            ParameterSpec("beta", lower=0.0, upper=1.0),
+            ParameterSpec("beta", lower=0.0, upper=2.0),  # Duplicate name
         ]
         with pytest.raises(ValueError, match="Duplicate parameter names.*beta"):
             ParameterSpace(specs)
 
+    def test_parameter_space_with_transforms(self):
+        """Test creating space with mix of transformed/untransformed parameters."""
+        space = ParameterSpace([
+            ParameterSpec("alpha", lower=0.0, upper=1.0),  # No transform
+            ParameterSpec("beta", lower=0.01, upper=10.0, transform="log"),
+            ParameterSpec("gamma", lower=0.0, upper=1.0, transform="logit"),
+        ])
+        assert space.get_spec("alpha").transform is None
+        assert space.get_spec("beta").transform == "log"
+        assert space.get_spec("gamma").transform == "logit"
+
     def test_get_spec(self):
         """Test retrieving parameter specification."""
         specs = [
-            ParameterSpec("beta", 0.0, 1.0),
-            ParameterSpec("gamma", 0.0, 1.0),
+            ParameterSpec("beta", lower=0.0, upper=1.0),
+            ParameterSpec("gamma", lower=0.0, upper=1.0),
         ]
         space = ParameterSpace(specs)
 
         beta_spec = space.get_spec("beta")
         assert beta_spec.name == "beta"
-        assert beta_spec.min == 0.0
-        assert beta_spec.max == 1.0
+        assert beta_spec.lower == 0.0
+        assert beta_spec.upper == 1.0
 
     def test_get_spec_unknown_raises(self):
         """Test that getting unknown parameter raises error."""
-        space = ParameterSpace([ParameterSpec("beta", 0.0, 1.0)])
+        space = ParameterSpace([ParameterSpec("beta", lower=0.0, upper=1.0)])
         with pytest.raises(KeyError, match="Unknown parameter: gamma"):
             space.get_spec("gamma")
 
     def test_contains(self):
         """Test parameter membership check."""
         space = ParameterSpace([
-            ParameterSpec("beta", 0.0, 1.0),
-            ParameterSpec("gamma", 0.0, 1.0),
+            ParameterSpec("beta", lower=0.0, upper=1.0),
+            ParameterSpec("gamma", lower=0.0, upper=1.0),
         ])
         assert "beta" in space
         assert "gamma" in space
@@ -138,11 +181,11 @@ class TestParameterSpace:
 
     def test_space_is_immutable(self):
         """Test that ParameterSpace is immutable."""
-        space = ParameterSpace([ParameterSpec("beta", 0.0, 1.0)])
+        space = ParameterSpace([ParameterSpec("beta", lower=0.0, upper=1.0)])
 
         # Can't modify specs
         with pytest.raises(AttributeError):
-            space.specs.append(ParameterSpec("gamma", 0.0, 1.0))
+            space.specs.append(ParameterSpec("gamma", lower=0.0, upper=1.0))
 
         # Can't reassign specs
         with pytest.raises(AttributeError):
@@ -280,7 +323,7 @@ class TestPropertyTests:
         """Property: ParameterSpec enforces min <= max."""
         assume(min_val <= max_val)
         spec = ParameterSpec("param", min_val, max_val, "float")
-        assert spec.min <= spec.max
+        assert spec.lower <= spec.upper
 
     @given(params=st.dictionaries(
         st.text(min_size=1, max_size=10),

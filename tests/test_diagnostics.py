@@ -9,24 +9,24 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 
-def generate_quadratic_grid(x_min=0, x_max=6, y_min=2, y_max=8, n_points=20):
+def generate_quadratic_grid(x_lower=0, x_upper=6, y_lower=2, y_upper=8, n_points=20):
     """Generate grid data for quadratic loss function with known minimum.
 
     The quadratic bowl function has a known minimum at (x=3.0, y=5.0) with loss=0.0.
     This provides ground truth for verifying contour plot correctness.
 
     Args:
-        x_min: Minimum x value for grid
-        x_max: Maximum x value for grid
-        y_min: Minimum y value for grid
-        y_max: Maximum y value for grid
+        x_lower: Minimum x value for grid
+        x_upper: Maximum x value for grid
+        y_lower: Minimum y value for grid
+        y_upper: Maximum y value for grid
         n_points: Number of points along each axis
 
     Returns:
         Polars DataFrame with columns: param_x, param_y, loss
     """
-    x_vals = np.linspace(x_min, x_max, n_points)
-    y_vals = np.linspace(y_min, y_max, n_points)
+    x_vals = np.linspace(x_lower, x_upper, n_points)
+    y_vals = np.linspace(y_lower, y_upper, n_points)
 
     data = []
     for x in x_vals:

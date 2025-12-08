@@ -35,9 +35,9 @@ def _parse_tags(tag_values: List[str]) -> Dict[str, str]:
 
 
 def _format_param_line(spec: ParameterSpec) -> str:
-    if spec.min == spec.max:
-        return f"    • {spec.name} = {spec.min}"
-    return f"    • {spec.name} ∈ [{spec.min}, {spec.max}]"
+    if spec.lower == spec.upper:
+        return f"    • {spec.name} = {spec.lower}"
+    return f"    • {spec.name} ∈ [{spec.lower}, {spec.upper}]"
 
 
 def _normalize_option_value(value):

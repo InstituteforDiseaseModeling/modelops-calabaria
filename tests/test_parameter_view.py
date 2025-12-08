@@ -145,7 +145,7 @@ class TestParameterView:
         view = ParameterView.all_free(space)
 
         # Create ParameterSet with different space
-        other_space = ParameterSpace([ParameterSpec("alpha", 0, 1)])
+        other_space = ParameterSpace([ParameterSpec("alpha", lower=0, upper=1)])
         other_pset = ParameterSet(other_space, {"alpha": 0.5})
 
         with pytest.raises(ValueError, match="different space"):
@@ -250,9 +250,9 @@ class TestPropertyTests:
     def test_fixed_free_partition(self, fixed_params):
         """Property: fixed and free form a partition of parameter names."""
         space = ParameterSpace([
-            ParameterSpec("a", 0, 10),
-            ParameterSpec("b", 0, 10),
-            ParameterSpec("c", 0, 10),
+            ParameterSpec("a", lower=0, upper=10),
+            ParameterSpec("b", lower=0, upper=10),
+            ParameterSpec("c", lower=0, upper=10),
         ])
 
         view = ParameterView(space, fixed_params)

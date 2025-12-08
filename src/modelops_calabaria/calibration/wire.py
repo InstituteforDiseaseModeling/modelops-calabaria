@@ -25,7 +25,8 @@ from modelops_contracts import (
     UniqueParameterSet,
 )
 
-from modelops_calabaria.calibration.base import AlgorithmAdapter, ParameterSpec
+from modelops_calabaria.calibration.base import AlgorithmAdapter
+from modelops_calabaria.parameters import ParameterSpec
 from modelops_calabaria.calibration.factory import (
     create_algorithm_adapter,
     parse_parameter_specs,

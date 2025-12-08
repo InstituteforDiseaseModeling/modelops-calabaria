@@ -19,29 +19,29 @@ from modelops_calabaria.wire_loader import EntryRecord
 def test_serialized_parameter_spec():
     """Test SerializedParameterSpec creation and JSON round-trip."""
     # Create from ParameterSpec
-    spec = ParameterSpec("beta", min=0.1, max=1.0, kind="float", doc="Transmission")
+    spec = ParameterSpec("beta", lower=0.1, upper=1.0, kind="float", doc="Transmission")
     serialized = SerializedParameterSpec.from_spec(spec)
 
     assert serialized.name == "beta"
-    assert serialized.min == 0.1
-    assert serialized.max == 1.0
+    assert serialized.lower == 0.1
+    assert serialized.upper == 1.0
     assert serialized.kind == "float"
     assert serialized.doc == "Transmission"
 
     # Test JSON round-trip
     json_data = serialized.to_json()
     assert json_data["name"] == "beta"
-    assert json_data["min"] == 0.1
+    assert json_data["lower"] == 0.1
 
     reconstructed = SerializedParameterSpec.from_json(json_data)
     assert reconstructed == serialized
 
     # Test validation
     with pytest.raises(ValueError, match="Invalid kind"):
-        SerializedParameterSpec("bad", 0, 1, kind="complex")
+        SerializedParameterSpec("bad", lower=0, upper=1, kind="complex")
 
     with pytest.raises(ValueError, match="Invalid bounds"):
-        SerializedParameterSpec("bad", 10, 5, kind="float")
+        SerializedParameterSpec("bad", lower=10, upper=5, kind="float")
 
 
 def test_wire_response():
@@ -80,8 +80,8 @@ def test_wire_response():
 def test_entry_record_creation():
     """Test EntryRecord creation and validation."""
     param_specs = (
-        SerializedParameterSpec("beta", 0.1, 1.0, "float"),
-        SerializedParameterSpec("gamma", 0.05, 0.5, "float"),
+        SerializedParameterSpec("beta", lower=0.1, upper=1.0, kind="float"),
+        SerializedParameterSpec("gamma", lower=0.05, upper=0.5, kind="float"),
     )
 
     entry = EntryRecord(

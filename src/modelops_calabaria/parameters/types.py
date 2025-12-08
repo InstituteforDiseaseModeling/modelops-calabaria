@@ -27,29 +27,35 @@ class ParameterSpec:
 
     Attributes:
         name: Parameter identifier
-        min: Lower bound (inclusive)
-        max: Upper bound (inclusive)
+        lower: Lower bound (inclusive)
+        upper: Upper bound (inclusive)
         kind: Type hint ("float" or "int")
         doc: Human-readable description
+        transform: Optional transform for optimization ("log", "logit", or None)
     """
     name: str
-    min: Scalar
-    max: Scalar
+    lower: Scalar
+    upper: Scalar
     kind: str = "float"  # "float" or "int"
     doc: str = ""
+    transform: Optional[str] = None
 
     def __post_init__(self):
         """Validate parameter specification."""
         if self.kind not in ("float", "int"):
             raise ValueError(f"Parameter kind must be 'float' or 'int', got {self.kind}")
 
-        if self.min > self.max:
-            raise ValueError(f"Parameter {self.name}: min ({self.min}) > max ({self.max})")
+        if self.lower > self.upper:
+            raise ValueError(f"Parameter {self.name}: lower ({self.lower}) > upper ({self.upper})")
 
         # Ensure int parameters have integer bounds
         if self.kind == "int":
-            if not isinstance(self.min, int) or not isinstance(self.max, int):
+            if not isinstance(self.lower, int) or not isinstance(self.upper, int):
                 raise ValueError(f"Integer parameter {self.name} must have integer bounds")
+
+        # Validate transform
+        if self.transform is not None and self.transform not in ("log", "logit"):
+            raise ValueError(f"Parameter transform must be 'log', 'logit', or None, got '{self.transform}'")
 
     def validate_value(self, value: Scalar) -> None:
         """Validate a value against this specification.
@@ -86,8 +92,8 @@ class ParameterSpec:
             if not isinstance(value, (int, float)):
                 raise TypeError(f"Parameter {self.name} requires numeric value, got {type(value).__name__}")
 
-        if not (self.min <= value <= self.max):
-            raise ValueError(f"Parameter {self.name}={value} outside bounds [{self.min}, {self.max}]")
+        if not (self.lower <= value <= self.upper):
+            raise ValueError(f"Parameter {self.name}={value} outside bounds [{self.lower}, {self.upper}]")
 
 
 @dataclass(frozen=True)
@@ -155,10 +161,11 @@ class ParameterSpace:
             "parameters": [
                 {
                     "name": spec.name,
-                    "min": spec.min,
-                    "max": spec.max,
+                    "lower": spec.lower,
+                    "upper": spec.upper,
                     "kind": spec.kind,
-                    "doc": spec.doc
+                    "doc": spec.doc,
+                    "transform": spec.transform
                 }
                 for spec in self.specs
             ]

@@ -17,9 +17,9 @@ class MockModel:
     @classmethod
     def parameter_space(cls):
         return ParameterSpace(specs=[
-            ParameterSpec(name="alpha", min=0.1, max=1.0, kind="float", doc="Alpha parameter"),
-            ParameterSpec(name="beta", min=0.5, max=2.0, kind="float", doc="Beta parameter"),
-            ParameterSpec(name="count", min=10, max=100, kind="int", doc="Count parameter")
+            ParameterSpec(name="alpha", lower=0.1, upper=1.0, kind="float", doc="Alpha parameter"),
+            ParameterSpec(name="beta", lower=0.5, upper=2.0, kind="float", doc="Beta parameter"),
+            ParameterSpec(name="count", lower=10, upper=100, kind="int", doc="Count parameter")
         ])
 
 
