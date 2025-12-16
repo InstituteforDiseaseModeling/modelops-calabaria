@@ -6,6 +6,8 @@ including model components, parameter management, sampling, and utilities.
 
 # Core modeling
 from .base_model import BaseModel
+from .simulator import ModelSimulator
+from .builder import SimulatorBuilder
 
 # Parameters
 from .parameters import (
@@ -86,6 +88,8 @@ except Exception:
 __all__ = [
     # Core
     "BaseModel",
+    "ModelSimulator",
+    "SimulatorBuilder",
 
     # Parameters
     "Scalar",

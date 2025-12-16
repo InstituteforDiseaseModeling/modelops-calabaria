@@ -329,3 +329,28 @@ class BaseModel(ABC):
             raise KeyError(f"Scenario '{name}' not found. Available: {available}")
         return self._scenarios[name]
 
+    def as_sim(self, scenario: str = "baseline") -> 'SimulatorBuilder':
+        """Create a SimulatorBuilder for fluent API construction.
+
+        This is the entry point for the fluent builder API. It returns a
+        SimulatorBuilder that can be used to configure parameter fixing,
+        transforms, and build a ModelSimulator.
+
+        Args:
+            scenario: Scenario name to use (default: "baseline")
+
+        Returns:
+            SimulatorBuilder for fluent configuration
+
+        Example:
+            >>> model = StochasticSEIR(...)
+            >>> sim = (model
+            ...        .as_sim("lockdown")
+            ...        .fix(gamma=0.1)
+            ...        .with_transforms(beta="log")
+            ...        .build())
+            >>> outputs = sim(z, seed=42)
+        """
+        from .builder import SimulatorBuilder
+        return SimulatorBuilder(_model=self, _scenario=scenario)
+
