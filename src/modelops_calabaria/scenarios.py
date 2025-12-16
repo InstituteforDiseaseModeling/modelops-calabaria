@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Tuple, Mapping, Optional, Literal, List, Set
 from types import MappingProxyType
 
-from .parameters import Scalar, ParameterSet, ParameterSpace
+from .parameters import Scalar, ParameterSet, ParameterSpace, ConfigurationSet
 
 
 @dataclass(frozen=True)
@@ -57,24 +57,26 @@ class ScenarioSpec:
             object.__setattr__(self, 'allow_overlap',
                               tuple(self.allow_overlap))
 
-    def apply(self, params: ParameterSet, config: Mapping) -> Tuple[ParameterSet, Mapping]:
+    def apply(self, params: ParameterSet, config: ConfigurationSet) -> Tuple[ParameterSet, ConfigurationSet]:
         """Apply patches to parameters and configuration.
 
         Validates that parameter patches reference valid parameters and
-        values are within bounds. Config patches are applied without validation.
+        values are within bounds. Config patches are applied and validated
+        by ConfigurationSet.
 
         This method is pure - it returns new objects without modifying inputs.
 
         Args:
             params: Current parameter set
-            config: Current configuration
+            config: Current configuration set
 
         Returns:
             Tuple of (updated_params, updated_config)
 
         Raises:
             ValueError: If parameter patches reference unknown parameters or
-                       values are out of bounds
+                       values are out of bounds, or if config patches reference
+                       unknown configurations
         """
         # Access space from ParameterSet
         space = params.space
@@ -106,9 +108,14 @@ class ScenarioSpec:
         else:
             new_params = params
 
-        # Apply config patches (creates new immutable mapping)
+        # Apply config patches (creates new ConfigurationSet)
         if self.config_patches:
-            new_config = MappingProxyType({**config, **self.config_patches})
+            try:
+                new_config = config.with_updates(**self.config_patches)
+            except ValueError as e:
+                raise ValueError(
+                    f"Scenario '{self.name}' invalid config patch: {e}"
+                ) from e
         else:
             new_config = config
 
@@ -124,8 +131,8 @@ class ScenarioSpec:
 def compose_scenarios(
     scenarios: List[ScenarioSpec],
     params: ParameterSet,
-    config: Mapping
-) -> Tuple[ParameterSet, Mapping, Dict[str, str]]:
+    config: ConfigurationSet
+) -> Tuple[ParameterSet, ConfigurationSet, Dict[str, str]]:
     """Apply multiple scenarios in order with conflict detection.
 
     Scenarios are applied sequentially with last-write-wins semantics
@@ -135,7 +142,7 @@ def compose_scenarios(
     Args:
         scenarios: Ordered list of scenarios to apply
         params: Base parameter set
-        config: Base configuration
+        config: Base configuration set
 
     Returns:
         Tuple of (final_params, final_config, param_sources)

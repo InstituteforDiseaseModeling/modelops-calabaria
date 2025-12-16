@@ -17,7 +17,7 @@ import inspect
 
 import polars as pl
 
-from .parameters import ParameterSpace, ParameterSet
+from .parameters import ParameterSpace, ParameterSet, ConfigurationSpace, ConfigurationSet
 from .scenarios import ScenarioSpec
 from .constants import SEED_COL
 
@@ -64,15 +64,17 @@ class BaseModel(ABC):
                     # Validation already done in decorator
                     cls._discovered_scenarios[attr._scenario_name] = name
 
-    def __init__(self, space: ParameterSpace, base_config: Optional[Mapping[str, Any]] = None):
-        """Initialize model with parameter space and base configuration.
+    def __init__(self, space: ParameterSpace, config_space: ConfigurationSpace, base_config: ConfigurationSet):
+        """Initialize model with parameter space and configuration.
 
         Args:
             space: The complete parameter space (M-space)
-            base_config: Base configuration dictionary
+            config_space: The configuration space (C-space)
+            base_config: Base configuration set (must be complete for config_space)
         """
         self.space = space  # Immutable ParameterSpace
-        self.base_config = MappingProxyType(base_config or {})
+        self.config_space = config_space  # Immutable ConfigurationSpace
+        self.base_config = base_config  # Immutable ConfigurationSet
 
         # Mutable until sealed
         self._scenarios: Dict[str, ScenarioSpec] = {
@@ -162,7 +164,7 @@ class BaseModel(ABC):
             raise ValueError("ParameterSet is for a different parameter space")
 
     @abstractmethod
-    def build_sim(self, params: ParameterSet, config: Mapping[str, Any]) -> Any:
+    def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> Any:
         """Build simulation state with COMPLETE ParameterSet M.
 
         This method should be pure and deterministic - no RNG or randomness.
@@ -170,7 +172,7 @@ class BaseModel(ABC):
 
         Args:
             params: Complete ParameterSet containing ALL model parameters
-            config: Configuration dictionary (may be patched by scenario)
+            config: Configuration set (may be patched by scenario)
 
         Returns:
             Simulation state object (backend-specific)

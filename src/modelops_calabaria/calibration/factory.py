@@ -76,10 +76,14 @@ def parse_parameter_specs(specs_config: Dict[str, Any]) -> Dict[str, ParameterSp
 
     Args:
         specs_config: Dictionary of parameter configurations
-            e.g., {"beta": {"lower": 0.1, "upper": 0.9, "transform": "logit"}}
+            e.g., {"beta": {"lower": 0.1, "upper": 0.9}}
 
     Returns:
         Dictionary of ParameterSpec objects
+
+    Note:
+        Transforms are now handled at CoordinateSystem level (Phase 5).
+        The 'transform' field in config is ignored if present.
     """
     parameter_specs = {}
 
@@ -88,7 +92,7 @@ def parse_parameter_specs(specs_config: Dict[str, Any]) -> Dict[str, ParameterSp
             name=name,
             lower=spec_dict["lower"],
             upper=spec_dict["upper"],
-            transform=spec_dict.get("transform"),
+            # Note: 'transform' field ignored - handled at CoordinateSystem level
         )
         parameter_specs[name] = spec
 

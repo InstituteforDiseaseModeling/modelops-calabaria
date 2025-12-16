@@ -31,14 +31,12 @@ class ParameterSpec:
         upper: Upper bound (inclusive)
         kind: Type hint ("float" or "int")
         doc: Human-readable description
-        transform: Optional transform for optimization ("log", "logit", or None)
     """
     name: str
     lower: Scalar
     upper: Scalar
     kind: str = "float"  # "float" or "int"
     doc: str = ""
-    transform: Optional[str] = None
 
     def __post_init__(self):
         """Validate parameter specification."""
@@ -52,10 +50,6 @@ class ParameterSpec:
         if self.kind == "int":
             if not isinstance(self.lower, int) or not isinstance(self.upper, int):
                 raise ValueError(f"Integer parameter {self.name} must have integer bounds")
-
-        # Validate transform
-        if self.transform is not None and self.transform not in ("log", "logit"):
-            raise ValueError(f"Parameter transform must be 'log', 'logit', or None, got '{self.transform}'")
 
     def validate_value(self, value: Scalar) -> None:
         """Validate a value against this specification.
@@ -164,8 +158,7 @@ class ParameterSpace:
                     "lower": spec.lower,
                     "upper": spec.upper,
                     "kind": spec.kind,
-                    "doc": spec.doc,
-                    "transform": spec.transform
+                    "doc": spec.doc
                 }
                 for spec in self.specs
             ]

@@ -156,17 +156,17 @@ def make_wire(entry: EntryRecord) -> Callable:
         pset = ParameterSet(space, params_M)
 
         # Apply scenario stack with LWW semantics
-        config = dict(model.base_config)
+        config = model.base_config
         applied_scenarios = []
 
         for scenario_name in scenario_stack:
             if scenario_name in model._scenarios:
                 spec = model._scenarios[scenario_name]
-                pset, config = spec.apply(pset, MappingProxyType(config))
+                pset, config = spec.apply(pset, config)
                 applied_scenarios.append(scenario_name)
 
         # Run simulation pipeline
-        state = model.build_sim(pset, MappingProxyType(config))
+        state = model.build_sim(pset, config)
         raw = model.run_sim(state, seed)
 
         # Extract all outputs

@@ -195,32 +195,5 @@ class TestOptunaAdapter:
         adapter.study = None
         assert adapter.get_best_parameters() is None
 
-    def test_parameter_transforms(self):
-        """Test parameter transformations (log, logit)."""
-        specs = {
-            "rate": ParameterSpec(name="rate", lower=0.001, upper=10.0, transform="log"),
-            "prob": ParameterSpec(name="prob", lower=0.01, upper=0.99, transform="logit"),
-        }
-        adapter = OptunaAdapter(parameter_specs=specs)
-
-        # Mock study and trial
-        mock_study = MagicMock()
-        mock_trial = MagicMock()
-
-        # Mock suggest_float to return values for transformed parameters
-        suggest_values = {
-            "rate": 1.0,  # Original space
-            "_log_rate": 0.0,  # log(1.0) = 0
-            "prob": 0.5,  # Original space
-            "_logit_prob": 0.0,  # logit(0.5) = 0
-        }
-        mock_trial.suggest_float.side_effect = lambda name, low, high: suggest_values.get(name, 0.5)
-        mock_study.ask.return_value = mock_trial
-
-        adapter.study = mock_study
-
-        # Ask for parameters
-        param_sets = adapter.ask(n=1)
-
-        assert len(param_sets) == 1
-        # The actual values would depend on the transform logic
+    # NOTE: Parameter transforms test removed - transforms now handled at CoordinateSystem level
+    # Will be reimplemented in Phase 5 with ModelSimulator-based calibration

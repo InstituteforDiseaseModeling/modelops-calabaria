@@ -14,6 +14,11 @@ from .parameters import (
     ParameterSpace,
     ParameterSet,
     ParameterView,
+    CoordinateSystem,
+    # Configuration
+    ConfigSpec,
+    ConfigurationSpace,
+    ConfigurationSet,
     # Transforms
     Identity,
     LogTransform,
@@ -88,6 +93,12 @@ __all__ = [
     "ParameterSpace",
     "ParameterSet",
     "ParameterView",
+    "CoordinateSystem",
+
+    # Configuration
+    "ConfigSpec",
+    "ConfigurationSpace",
+    "ConfigurationSet",
 
     # Transforms
     "Identity",

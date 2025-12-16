@@ -17,7 +17,9 @@ from modelops_calabaria.wire_loader import (
     EntryRecord, entry_from_manifest, make_wire, make_wire_from_manifest
 )
 from modelops_calabaria.wire_protocol import WireABI, SerializedParameterSpec, WireResponse
-from modelops_calabaria.parameters import ParameterSpace, ParameterSpec
+from modelops_calabaria.parameters import (
+    ParameterSpace, ParameterSpec, ConfigSpec, ConfigurationSpace, ConfigurationSet
+)
 from modelops_calabaria.base_model import BaseModel
 from modelops_calabaria.decorators import model_output, model_scenario
 from modelops_calabaria.scenarios import ScenarioSpec
@@ -28,7 +30,9 @@ class DummyModel(BaseModel):
     """Test model for wire loader tests."""
 
     def __init__(self, space):
-        super().__init__(space)
+        config_space = ConfigurationSpace([])
+        base_config = ConfigurationSet(config_space, {})
+        super().__init__(space, config_space, base_config)
 
     @model_output("infected")
     def infected(self, raw, seed):

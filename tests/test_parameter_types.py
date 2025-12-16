@@ -83,37 +83,6 @@ class TestParameterSpec:
         with pytest.raises(AttributeError):
             spec.lower = -1.0
 
-    def test_create_spec_with_no_transform(self):
-        """Test creating parameter with no transform (default)."""
-        spec = ParameterSpec("beta", lower=0.0, upper=1.0)
-        assert spec.transform is None
-
-    def test_create_spec_with_log_transform(self):
-        """Test creating parameter with log transform."""
-        spec = ParameterSpec("rate", lower=0.01, upper=10.0, transform="log")
-        assert spec.transform == "log"
-
-    def test_create_spec_with_logit_transform(self):
-        """Test creating parameter with logit transform."""
-        spec = ParameterSpec("prob", lower=0.0, upper=1.0, transform="logit")
-        assert spec.transform == "logit"
-
-    def test_invalid_transform_raises(self):
-        """Test that invalid transform string raises error."""
-        with pytest.raises(ValueError, match="transform must be"):
-            ParameterSpec("param", lower=0, upper=1, transform="invalid")
-
-    def test_log_transform_with_negative_bounds_allowed(self):
-        """Log transform validation happens at usage time, not spec creation."""
-        # This should NOT raise - validation happens when transform is applied
-        spec = ParameterSpec("param", lower=-1.0, upper=1.0, transform="log")
-        assert spec.transform == "log"
-
-    def test_transform_field_immutable(self):
-        """Test that transform field cannot be modified (frozen dataclass)."""
-        spec = ParameterSpec("param", lower=0, upper=1, transform="log")
-        with pytest.raises(AttributeError):
-            spec.transform = "logit"
 
 
 class TestParameterSpace:
@@ -139,16 +108,16 @@ class TestParameterSpace:
         with pytest.raises(ValueError, match="Duplicate parameter names.*beta"):
             ParameterSpace(specs)
 
-    def test_parameter_space_with_transforms(self):
-        """Test creating space with mix of transformed/untransformed parameters."""
+    def test_parameter_space_with_multiple_params(self):
+        """Test creating space with multiple parameters."""
         space = ParameterSpace([
-            ParameterSpec("alpha", lower=0.0, upper=1.0),  # No transform
-            ParameterSpec("beta", lower=0.01, upper=10.0, transform="log"),
-            ParameterSpec("gamma", lower=0.0, upper=1.0, transform="logit"),
+            ParameterSpec("alpha", lower=0.0, upper=1.0),
+            ParameterSpec("beta", lower=0.01, upper=10.0),
+            ParameterSpec("gamma", lower=0.0, upper=1.0),
         ])
-        assert space.get_spec("alpha").transform is None
-        assert space.get_spec("beta").transform == "log"
-        assert space.get_spec("gamma").transform == "logit"
+        assert space.get_spec("alpha").name == "alpha"
+        assert space.get_spec("beta").name == "beta"
+        assert space.get_spec("gamma").name == "gamma"
 
     def test_get_spec(self):
         """Test retrieving parameter specification."""

@@ -17,6 +17,9 @@ from modelops_calabaria import (
     ParameterSpec,
     ParameterSpace,
     ParameterSet,
+    ConfigSpec,
+    ConfigurationSpace,
+    ConfigurationSet,
     ScenarioSpec,
     model_output,
     model_scenario,
@@ -64,15 +67,19 @@ class SimpleTestModel(BaseModel):
             ParameterSpec("beta", 0.0, 1.0, "float"),
             ParameterSpec("steps", 10, 100, "int"),
         ])
-        super().__init__(space, base_config={"mode": "test"})
+        config_space = ConfigurationSpace([
+            ConfigSpec("mode", default="test"),
+        ])
+        base_config = ConfigurationSet(config_space, {"mode": "test"})
+        super().__init__(space, config_space, base_config)
 
-    def build_sim(self, params: ParameterSet, config: Mapping[str, Any]) -> Dict:
+    def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> Dict:
         """Build simulation state."""
         return {
             "alpha": params["alpha"],
             "beta": params["beta"],
             "steps": params["steps"],
-            "config": dict(config),
+            "config": config.to_dict(),
         }
 
     def run_sim(self, state: Dict, seed: int) -> Dict:
@@ -319,7 +326,9 @@ class TestOutputExtraction:
         class BadModel(BaseModel):
             def __init__(self):
                 space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
-                super().__init__(space)
+                config_space = ConfigurationSpace([])
+                base_config = ConfigurationSet(config_space, {})
+                super().__init__(space, config_space, base_config)
 
             def build_sim(self, params, config):
                 return {}
@@ -346,7 +355,9 @@ class TestOutputExtraction:
         class BadModel(BaseModel):
             def __init__(self):
                 space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
-                super().__init__(space)
+                config_space = ConfigurationSpace([])
+                base_config = ConfigurationSet(config_space, {})
+                super().__init__(space, config_space, base_config)
 
             def build_sim(self, params, config):
                 return {}

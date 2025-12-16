@@ -138,29 +138,11 @@ class OptunaAdapter(AlgorithmAdapter):
             trial = self.study.ask()
 
             # Sample parameters according to specifications
+            # NOTE: Transforms now handled at CoordinateSystem level (Phase 5)
             params = {}
             for name, spec in self.parameter_specs.items():
-                # Sample in original space
+                # Sample in natural space
                 value = trial.suggest_float(name, spec.lower, spec.upper)
-
-                # Apply transform if specified
-                if spec.transform == "log":
-                    # Sample in log space
-                    import math
-                    log_value = trial.suggest_float(
-                        f"_log_{name}",
-                        math.log(spec.lower) if spec.lower > 0 else -10,
-                        math.log(spec.upper),
-                    )
-                    value = math.exp(log_value)
-                elif spec.transform == "logit":
-                    # Sample in logit space (for probabilities)
-                    import math
-                    logit_value = trial.suggest_float(f"_logit_{name}", -5, 5)
-                    value = 1 / (1 + math.exp(-logit_value))
-                    # Clip to bounds
-                    value = max(spec.lower, min(spec.upper, value))
-
                 params[name] = value
 
             # Create parameter set with stable ID

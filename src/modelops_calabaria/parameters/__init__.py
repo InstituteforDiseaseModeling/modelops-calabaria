@@ -11,12 +11,18 @@ from .types import (
     ParameterSet,
 )
 from .view import ParameterView
+from .coordinates import CoordinateSystem
 from .transforms import (
     Transform,
     Identity,
     LogTransform,
     LogitTransform,
     AffineSqueezedLogit,
+)
+from .config import (
+    ConfigSpec,
+    ConfigurationSpace,
+    ConfigurationSet,
 )
 
 __all__ = [
@@ -27,10 +33,16 @@ __all__ = [
     "ParameterSet",
     # View
     "ParameterView",
+    # Coordinates
+    "CoordinateSystem",
     # Transforms
     "Transform",
     "Identity",
     "LogTransform",
     "LogitTransform",
     "AffineSqueezedLogit",
+    # Configuration
+    "ConfigSpec",
+    "ConfigurationSpace",
+    "ConfigurationSet",
 ]

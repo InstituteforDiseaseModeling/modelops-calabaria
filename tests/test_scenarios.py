@@ -10,6 +10,9 @@ from modelops_calabaria.parameters import (
     ParameterSpec,
     ParameterSpace,
     ParameterSet,
+    ConfigSpec,
+    ConfigurationSpace,
+    ConfigurationSet,
 )
 from modelops_calabaria.scenarios import (
     ScenarioSpec,
@@ -18,28 +21,64 @@ from modelops_calabaria.scenarios import (
 )
 
 
+# Module-level fixtures shared across all test classes
+@pytest.fixture
+def space():
+    """Create test parameter space."""
+    return ParameterSpace([
+        ParameterSpec("beta", 0.0, 1.0, "float"),
+        ParameterSpec("gamma", 0.0, 1.0, "float"),
+        ParameterSpec("contact_rate", 0.0, 10.0, "float"),
+        ParameterSpec("population", 100, 10000, "int"),
+    ])
+
+
+@pytest.fixture
+def base_params(space):
+    """Create base parameter set."""
+    return ParameterSet(space, {
+        "beta": 0.3,
+        "gamma": 0.1,
+        "contact_rate": 4.0,
+        "population": 1000,
+    })
+
+
+@pytest.fixture
+def config_space():
+    """Create test configuration space."""
+    return ConfigurationSpace([
+        ConfigSpec("mode", default="normal"),
+        ConfigSpec("output", default="detailed"),
+        ConfigSpec("alerts", default=False),
+        ConfigSpec("feature_a", default=False),
+        ConfigSpec("feature_b", default=False),
+        ConfigSpec("level", default=0),
+    ])
+
+
+@pytest.fixture
+def base_config(config_space):
+    """Create base configuration set."""
+    return ConfigurationSet(config_space, {
+        "mode": "normal",
+        "output": "detailed",
+        "alerts": False,
+        "feature_a": False,
+        "feature_b": False,
+        "level": 0,
+    })
+
+
+@pytest.fixture
+def empty_config():
+    """Create empty configuration set for tests that don't need config."""
+    space = ConfigurationSpace([])
+    return ConfigurationSet(space, {})
+
+
 class TestScenarioSpec:
     """Tests for ScenarioSpec."""
-
-    @pytest.fixture
-    def space(self):
-        """Create test parameter space."""
-        return ParameterSpace([
-            ParameterSpec("beta", 0.0, 1.0, "float"),
-            ParameterSpec("gamma", 0.0, 1.0, "float"),
-            ParameterSpec("contact_rate", 0.0, 10.0, "float"),
-            ParameterSpec("population", 100, 10000, "int"),
-        ])
-
-    @pytest.fixture
-    def base_params(self, space):
-        """Create base parameter set."""
-        return ParameterSet(space, {
-            "beta": 0.3,
-            "gamma": 0.1,
-            "contact_rate": 4.0,
-            "population": 1000,
-        })
 
     def test_create_empty_scenario(self):
         """Test creating scenario with no patches."""
@@ -103,9 +142,8 @@ class TestScenarioSpec:
         # Check original unchanged
         assert base_params["beta"] == 0.3
 
-    def test_apply_config_patches(self, space, base_params):
+    def test_apply_config_patches(self, space, base_params, base_config):
         """Test applying configuration patches."""
-        base_config = {"mode": "normal", "output": "detailed"}
         spec = ScenarioSpec(
             name="test",
             config_patches={"mode": "emergency", "alerts": True},
@@ -118,7 +156,7 @@ class TestScenarioSpec:
         assert new_config["alerts"] is True
         # Check unchanged config preserved
         assert new_config["output"] == "detailed"
-        # Check original unchanged
+        # Check original unchanged (immutable)
         assert base_config["mode"] == "normal"
 
     def test_apply_unknown_parameter_raises(self, space, base_params):
@@ -231,23 +269,23 @@ class TestScenarioComposition:
         assert sources["contact_rate"] == "mild"
         assert sources["gamma"] == "severe"
 
-    def test_compose_order_matters(self, base_params):
+    def test_compose_order_matters(self, base_params, empty_config):
         """Test that scenario order matters for overlapping patches."""
         spec_a = ScenarioSpec(name="A", param_patches={"beta": 0.4})
         spec_b = ScenarioSpec(name="B", param_patches={"beta": 0.6})
 
         # A then B
-        params_ab, _, _ = compose_scenarios([spec_a, spec_b], base_params, {})
+        params_ab, _, _ = compose_scenarios([spec_a, spec_b], base_params, empty_config)
         assert params_ab["beta"] == 0.6  # B wins
 
         # B then A
-        params_ba, _, _ = compose_scenarios([spec_b, spec_a], base_params, {})
+        params_ba, _, _ = compose_scenarios([spec_b, spec_a], base_params, empty_config)
         assert params_ba["beta"] == 0.4  # A wins
 
         # Order matters!
         assert params_ab["beta"] != params_ba["beta"]
 
-    def test_compose_strict_mode_raises(self, base_params):
+    def test_compose_strict_mode_raises(self, base_params, empty_config):
         """Test that strict mode raises on conflicts."""
         spec1 = ScenarioSpec(
             name="first",
@@ -260,9 +298,9 @@ class TestScenarioComposition:
         )
 
         with pytest.raises(ValueError, match="set by multiple scenarios.*first.*second"):
-            compose_scenarios([spec1, spec2], base_params, {})
+            compose_scenarios([spec1, spec2], base_params, empty_config)
 
-    def test_compose_strict_with_allow_overlap(self, base_params):
+    def test_compose_strict_with_allow_overlap(self, base_params, empty_config):
         """Test that allow_overlap permits specific conflicts in strict mode."""
         spec1 = ScenarioSpec(
             name="first",
@@ -277,7 +315,7 @@ class TestScenarioComposition:
 
         # Should raise for gamma (not in allow_overlap)
         with pytest.raises(ValueError, match="gamma.*set by multiple"):
-            compose_scenarios([spec1, spec2], base_params, {})
+            compose_scenarios([spec1, spec2], base_params, empty_config)
 
         # If we allow both, should work
         spec3 = ScenarioSpec(
@@ -286,14 +324,12 @@ class TestScenarioComposition:
             conflict_policy="strict",
             allow_overlap=("beta", "gamma"),
         )
-        params, _, _ = compose_scenarios([spec1, spec3], base_params, {})
+        params, _, _ = compose_scenarios([spec1, spec3], base_params, empty_config)
         assert params["beta"] == 0.6
         assert params["gamma"] == 0.2
 
-    def test_compose_config_patches(self, base_params):
+    def test_compose_config_patches(self, base_params, base_config):
         """Test composing config patches across scenarios."""
-        base_config = {"mode": "normal"}
-
         spec1 = ScenarioSpec(
             name="s1",
             config_patches={"feature_a": True, "level": 1},

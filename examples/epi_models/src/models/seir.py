@@ -13,6 +13,7 @@ from typing import Dict, Any, Mapping
 
 from modelops_calabaria import (
     BaseModel, ParameterSpace, ParameterSpec, ParameterSet,
+    ConfigurationSpace, ConfigSpec, ConfigurationSet,
     model_output, model_scenario, ScenarioSpec
 )
 
@@ -65,21 +66,39 @@ class StochasticSEIR(BaseModel):
             ),
         ])
 
-    def __init__(self, space=None):
-        """Initialize the SEIR model with parameter space."""
+    @classmethod
+    def config_space(cls):
+        """Get the configuration space for this model."""
+        return ConfigurationSpace([
+            ConfigSpec(
+                "dt", default=0.1,
+                doc="Time step for simulation"
+            ),
+            ConfigSpec(
+                "output_frequency", default=1.0,
+                doc="Days between output points"
+            ),
+        ])
+
+    def __init__(self, space=None, config_space=None, base_config=None):
+        """Initialize the SEIR model with parameter and configuration spaces."""
         if space is None:
             space = self.parameter_space()
-        super().__init__(space, base_config={
-            "dt": 0.1,  # Time step for simulation
-            "output_frequency": 1.0,  # Days between output points
-        })
+        if config_space is None:
+            config_space = self.config_space()
+        if base_config is None:
+            base_config = ConfigurationSet(config_space, {
+                "dt": 0.1,
+                "output_frequency": 1.0,
+            })
+        super().__init__(space, config_space, base_config)
 
-    def build_sim(self, params: ParameterSet, config: Mapping[str, Any]) -> Dict:
+    def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> Dict:
         """Build the simulation state from parameters and configuration.
 
         Args:
             params: Parameter values for this simulation
-            config: Configuration dictionary (scenarios can modify this)
+            config: Configuration set (scenarios can modify this)
 
         Returns:
             Dictionary containing simulation state
@@ -97,12 +116,13 @@ class StochasticSEIR(BaseModel):
         S0 = N - E0 - I0
         R0 = 0
 
-        # Time parameters
-        dt = float(config.get("dt", 0.1))
-        output_freq = float(config.get("output_frequency", 1.0))
+        # Time parameters from configuration
+        dt = float(config["dt"])
+        output_freq = float(config["output_frequency"])
 
         # Simulation parameters that might be modified by scenarios
-        beta_eff = beta * config.get("transmission_multiplier", 1.0)
+        # Note: transmission_multiplier might be added by scenarios
+        beta_eff = beta * config.to_dict().get("transmission_multiplier", 1.0)
 
         return {
             "initial_state": {"S": S0, "E": E0, "I": I0, "R": R0},
