@@ -497,7 +497,10 @@ class TestPerformance:
                )
                .build())
 
-        z = np.random.randn(10)
+        # Sample from valid transformed bounds
+        bounds = sim.bounds()
+        rng = np.random.RandomState(42)
+        z = rng.uniform(bounds[:, 0], bounds[:, 1])
 
         start = time.time()
         for _ in range(1000):
