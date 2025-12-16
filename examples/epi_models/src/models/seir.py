@@ -30,6 +30,26 @@ class StochasticSEIR(BaseModel):
 
     The model uses stochastic transitions between compartments based on
     Poisson processes for realistic variability.
+
+    Example - Using the fluent builder API:
+        >>> model = StochasticSEIR()
+        >>>
+        >>> # Build a simulator with fixed population parameters
+        >>> sim = (model
+        ...        .as_sim("baseline")
+        ...        .fix(population=100000, initial_infected=10, initial_exposed=5)
+        ...        .fix(simulation_days=180)
+        ...        .with_transforms(beta="log", sigma="log", gamma="log")
+        ...        .build())
+        >>>
+        >>> # Now only 3 free parameters (beta, sigma, gamma in log space)
+        >>> print(f"Dimension: {sim.dim}")  # 3
+        >>> print(f"Free params: {sim.free_param_names}")  # ('beta', 'sigma', 'gamma')
+        >>>
+        >>> # Execute with inference coordinates
+        >>> z = np.array([-0.5, -2.0, -1.5])  # log(beta), log(sigma), log(gamma)
+        >>> outputs = sim(z, seed=42)
+        >>> print(outputs["timeseries"])  # DataFrame with S, E, I, R over time
     """
 
     @classmethod

@@ -155,8 +155,58 @@ Submitting simulation job
   kubectl -n modelops-dask-dev logs deployment/dask-workers
 ```
 
-That’s the entire happy path; the rest of this README covers the Python API if
+That's the entire happy path; the rest of this README covers the Python API if
 you prefer to integrate directly.
+
+## Fluent Builder API (Grammar of Parameters)
+
+Calabaria implements the **Grammar of Model Parameters**, a formal framework for working with parameter spaces, coordinate transformations, and model simulators. The fluent builder API provides an expressive way to create calibration-ready simulators:
+
+```python
+import numpy as np
+from modelops_calabaria import StochasticSEIR
+
+# Create model
+model = StochasticSEIR()
+
+# Build simulator with fluent API
+sim = (model
+       .as_sim("baseline")                              # Select scenario
+       .fix(population=100000, initial_infected=10)     # Fix some parameters
+       .with_transforms(beta="log", gamma="log")        # Transform others
+       .build())                                         # Create ModelSimulator
+
+# Now sim is a callable: z × seed → outputs
+# z is in transformed space (log-space for beta, gamma)
+z = np.array([np.log(0.5), np.log(0.2)])  # log(beta), log(gamma)
+outputs = sim(z, seed=42)
+
+print(f"Dimension: {sim.dim}")                # 2 (only beta, gamma free)
+print(f"Free parameters: {sim.free_param_names}")  # ('beta', 'gamma')
+print(f"Bounds (transformed): {sim.bounds()}")     # Bounds in log-space
+```
+
+### Why Transforms?
+
+Transforms map between natural parameter space and inference space:
+
+- **`"log"`**: For positive parameters (rates, counts) - maps (0, ∞) → (-∞, ∞)
+- **`"logit"`**: For probabilities [0,1] - maps (0, 1) → (-∞, ∞)
+- **`"identity"`**: No transformation (default)
+
+Benefits for optimization/calibration:
+- Unbounded inference space (easier for optimizers)
+- Normalized scales (better gradient behavior)
+- Automatic constraint satisfaction (rates stay positive, probabilities in [0,1])
+- Uniform sampling in inference space → good coverage in natural space
+
+### Complete Examples
+
+See comprehensive examples in [`examples/`](examples/):
+
+- **[`fluent_api_complete.py`](examples/fluent_api_complete.py)** - Complete workflow with scenarios, transforms, and reusable builders
+- **[`coordinate_system_demo.py`](examples/coordinate_system_demo.py)** - Deep dive into coordinate transforms and their effects
+- **[`epi_models/src/models/seir.py`](examples/epi_models/src/models/seir.py)** - Production SEIR model using the fluent API
 
 ### 1. Import the Framework
 
