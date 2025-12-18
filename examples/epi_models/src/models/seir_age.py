@@ -13,6 +13,7 @@ from typing import Dict, Any, Mapping, List
 
 from modelops_calabaria import (
     BaseModel, ParameterSpace, ParameterSpec, ParameterSet,
+    ConfigurationSpace, ConfigSpec,
     model_output, model_scenario, ScenarioSpec
 )
 
@@ -29,82 +30,75 @@ class AgeStratifiedSEIR(BaseModel):
     2: Elderly (65+)
     """
 
-    @classmethod
-    def parameter_space(cls):
-        """Get the parameter space for this model."""
-        return ParameterSpace([
-            ParameterSpec(
-                "beta", 0.1, 2.0, "float",
-                doc="Base transmission rate"
-            ),
-            ParameterSpec(
-                "sigma", 0.05, 0.5, "float",
-                doc="Incubation rate (1/latent period in days)"
-            ),
-            ParameterSpec(
-                "gamma", 0.05, 0.5, "float",
-                doc="Recovery rate (1/infectious period in days)"
-            ),
-            ParameterSpec(
-                "population", 10000, 1000000, "int",
-                doc="Total population size"
-            ),
-            ParameterSpec(
-                "contact_matrix_scale", 0.1, 2.0, "float",
-                doc="Scale factor for contact matrix (controls mixing between age groups)"
-            ),
-            ParameterSpec(
-                "child_susceptibility", 0.3, 1.0, "float",
-                doc="Relative susceptibility of children compared to adults"
-            ),
-            ParameterSpec(
-                "elderly_susceptibility", 0.8, 1.5, "float",
-                doc="Relative susceptibility of elderly compared to adults"
-            ),
-            ParameterSpec(
-                "initial_infected_children", 0, 50, "int",
-                doc="Initial infections in children"
-            ),
-            ParameterSpec(
-                "initial_infected_adults", 1, 100, "int",
-                doc="Initial infections in adults"
-            ),
-            ParameterSpec(
-                "initial_infected_elderly", 0, 20, "int",
-                doc="Initial infections in elderly"
-            ),
-            ParameterSpec(
-                "simulation_days", 100, 365, "int",
-                doc="Number of days to simulate"
-            ),
-        ])
+    PARAMS = ParameterSpace((
+        ParameterSpec(
+            "beta", 0.1, 2.0, "float",
+            doc="Base transmission rate"
+        ),
+        ParameterSpec(
+            "sigma", 0.05, 0.5, "float",
+            doc="Incubation rate (1/latent period in days)"
+        ),
+        ParameterSpec(
+            "gamma", 0.05, 0.5, "float",
+            doc="Recovery rate (1/infectious period in days)"
+        ),
+        ParameterSpec(
+            "population", 10000, 1000000, "int",
+            doc="Total population size"
+        ),
+        ParameterSpec(
+            "contact_matrix_scale", 0.1, 2.0, "float",
+            doc="Scale factor for contact matrix (controls mixing between age groups)"
+        ),
+        ParameterSpec(
+            "child_susceptibility", 0.3, 1.0, "float",
+            doc="Relative susceptibility of children compared to adults"
+        ),
+        ParameterSpec(
+            "elderly_susceptibility", 0.8, 1.5, "float",
+            doc="Relative susceptibility of elderly compared to adults"
+        ),
+        ParameterSpec(
+            "initial_infected_children", 0, 50, "int",
+            doc="Initial infections in children"
+        ),
+        ParameterSpec(
+            "initial_infected_adults", 1, 100, "int",
+            doc="Initial infections in adults"
+        ),
+        ParameterSpec(
+            "initial_infected_elderly", 0, 20, "int",
+            doc="Initial infections in elderly"
+        ),
+        ParameterSpec(
+            "simulation_days", 100, 365, "int",
+            doc="Number of days to simulate"
+        ),
+    ))
 
-    def __init__(self, space=None):
-        """Initialize the age-stratified SEIR model with parameter space."""
-        if space is None:
-            space = self.parameter_space()
-        super().__init__(space, base_config={
-            "dt": 0.1,
-            "output_frequency": 1.0,
-            # Age structure (children, adults, elderly)
-            "age_distribution": [0.25, 0.60, 0.15],
-            # Contact matrix (who contacts whom)
-            # Rows = infector age group, columns = infectee age group
-            "base_contact_matrix": [
-                [8.0, 2.0, 0.5],  # Children contact: children, adults, elderly
-                [2.0, 6.0, 1.0],  # Adults contact: children, adults, elderly
-                [0.5, 1.0, 3.0],  # Elderly contact: children, adults, elderly
-            ],
-            # Intervention modifiers
-            "contact_modifiers": {
-                "child_child": 1.0,
-                "child_adult": 1.0,
-                "child_elderly": 1.0,
-                "adult_adult": 1.0,
-                "adult_elderly": 1.0,
-                "elderly_elderly": 1.0,
-            }
-        })
+    CONFIG = ConfigurationSpace((
+        ConfigSpec("dt", default=0.1, doc="Time step for simulation"),
+        ConfigSpec("output_frequency", default=1.0, doc="Days between output points"),
+        ConfigSpec("age_distribution", default=[0.25, 0.60, 0.15], doc="Age structure (children, adults, elderly)"),
+        ConfigSpec("base_contact_matrix", default=[
+            [8.0, 2.0, 0.5],  # Children contact: children, adults, elderly
+            [2.0, 6.0, 1.0],  # Adults contact: children, adults, elderly
+            [0.5, 1.0, 3.0],  # Elderly contact: children, adults, elderly
+        ], doc="Contact matrix (rows=infector age, cols=infectee age)"),
+        ConfigSpec("contact_modifiers", default={
+            "child_child": 1.0,
+            "child_adult": 1.0,
+            "child_elderly": 1.0,
+            "adult_adult": 1.0,
+            "adult_elderly": 1.0,
+            "elderly_elderly": 1.0,
+        }, doc="Intervention modifiers for age-specific contacts"),
+    ))
+
+    def __init__(self):
+        """Initialize the age-stratified SEIR model."""
+        super().__init__()
 
     def build_sim(self, params: ParameterSet, config: Mapping[str, Any]) -> Dict:
         """Build the simulation state from parameters and configuration."""

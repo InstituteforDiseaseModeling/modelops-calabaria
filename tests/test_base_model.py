@@ -28,50 +28,61 @@ from modelops_calabaria import (
 
 
 class TestAbstractEnforcement:
-    """Test that BaseModel enforces abstract methods."""
+    """Test that BaseModel enforces abstract methods and class attributes."""
 
     def test_cannot_instantiate_without_implementing_abstract(self):
         """Test that BaseModel cannot be instantiated directly."""
-        space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
-
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-            BaseModel(space)
+            BaseModel()
+
+    def test_must_set_params(self):
+        """Test that PARAMS must be set as a class attribute."""
+        with pytest.raises(TypeError, match="PARAMS must be set"):
+            class ModelWithoutParams(BaseModel):
+                def build_sim(self, params, config):
+                    return {}
+
+                def run_sim(self, state, seed):
+                    return {}
 
     def test_must_implement_build_sim(self):
         """Test that build_sim must be implemented."""
-        class IncompleteModel(BaseModel):
-            def run_sim(self, state, seed):
-                return {}
-
-        space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-            IncompleteModel(space)
+            class IncompleteModel(BaseModel):
+                PARAMS = ParameterSpace((ParameterSpec("x", lower=0, upper=1),))
+
+                def run_sim(self, state, seed):
+                    return {}
+
+            IncompleteModel()
 
     def test_must_implement_run_sim(self):
         """Test that run_sim must be implemented."""
-        class IncompleteModel(BaseModel):
-            def build_sim(self, params, config):
-                return {}
-
-        space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
         with pytest.raises(TypeError, match="Can't instantiate abstract class"):
-            IncompleteModel(space)
+            class IncompleteModel(BaseModel):
+                PARAMS = ParameterSpace((ParameterSpec("x", lower=0, upper=1),))
+
+                def build_sim(self, params, config):
+                    return {}
+
+            IncompleteModel()
 
 
 class SimpleTestModel(BaseModel):
     """Concrete test model for testing BaseModel functionality."""
 
+    PARAMS = ParameterSpace((
+        ParameterSpec("alpha", 0.0, 1.0, "float"),
+        ParameterSpec("beta", 0.0, 1.0, "float"),
+        ParameterSpec("steps", 10, 100, "int"),
+    ))
+
+    CONFIG = ConfigurationSpace((
+        ConfigSpec("mode", default="test"),
+    ))
+
     def __init__(self):
-        space = ParameterSpace([
-            ParameterSpec("alpha", 0.0, 1.0, "float"),
-            ParameterSpec("beta", 0.0, 1.0, "float"),
-            ParameterSpec("steps", 10, 100, "int"),
-        ])
-        config_space = ConfigurationSpace([
-            ConfigSpec("mode", default="test"),
-        ])
-        base_config = ConfigurationSet(config_space, {"mode": "test"})
-        super().__init__(space, config_space, base_config)
+        super().__init__()
 
     def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> Dict:
         """Build simulation state."""
@@ -324,11 +335,10 @@ class TestOutputExtraction:
     def test_extractor_cannot_add_seed_col(self):
         """Test that extractors cannot add SEED_COL themselves."""
         class BadModel(BaseModel):
+            PARAMS = ParameterSpace((ParameterSpec("x", lower=0, upper=1),))
+
             def __init__(self):
-                space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
-                config_space = ConfigurationSpace([])
-                base_config = ConfigurationSet(config_space, {})
-                super().__init__(space, config_space, base_config)
+                super().__init__()
 
             def build_sim(self, params, config):
                 return {}
@@ -353,11 +363,10 @@ class TestOutputExtraction:
     def test_extractor_must_return_dataframe(self):
         """Test that extractors must return DataFrame."""
         class BadModel(BaseModel):
+            PARAMS = ParameterSpace((ParameterSpec("x", lower=0, upper=1),))
+
             def __init__(self):
-                space = ParameterSpace([ParameterSpec("x", lower=0, upper=1)])
-                config_space = ConfigurationSpace([])
-                base_config = ConfigurationSet(config_space, {})
-                super().__init__(space, config_space, base_config)
+                super().__init__()
 
             def build_sim(self, params, config):
                 return {}

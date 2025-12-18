@@ -171,7 +171,7 @@ model = StochasticSEIR()
 
 # Build simulator with fluent API
 sim = (model
-       .as_sim("baseline")                              # Select scenario
+       .builder("baseline")                              # Select scenario
        .fix(population=100000, initial_infected=10)     # Fix some parameters
        .with_transforms(beta="log", gamma="log")        # Transform others
        .build())                                         # Create ModelSimulator

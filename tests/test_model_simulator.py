@@ -35,21 +35,19 @@ from modelops_calabaria import (
 class SimpleTestModel(BaseModel):
     """Simple test model for ModelSimulator tests."""
 
+    PARAMS = ParameterSpace((
+        ParameterSpec("alpha", 0.0, 1.0, "float"),
+        ParameterSpec("beta", 0.01, 10.0, "float"),
+        ParameterSpec("gamma", 0.0, 1.0, "float"),
+    ))
+
+    CONFIG = ConfigurationSpace((
+        ConfigSpec("dt", default=0.1),
+        ConfigSpec("steps", default=100),
+    ))
+
     def __init__(self):
-        space = ParameterSpace([
-            ParameterSpec("alpha", 0.0, 1.0, "float"),
-            ParameterSpec("beta", 0.01, 10.0, "float"),
-            ParameterSpec("gamma", 0.0, 1.0, "float"),
-        ])
-        config_space = ConfigurationSpace([
-            ConfigSpec("dt", default=0.1),
-            ConfigSpec("steps", default=100),
-        ])
-        base_config = ConfigurationSet(config_space, {
-            "dt": 0.1,
-            "steps": 100,
-        })
-        super().__init__(space, config_space, base_config)
+        super().__init__()
 
     def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> dict:
         """Build simulation state."""

@@ -13,7 +13,6 @@ Key invariants:
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Mapping, Optional, Callable, List, Union, final, Type
 from types import MappingProxyType
-import inspect
 
 import polars as pl
 
@@ -35,13 +34,51 @@ class BaseModel(ABC):
     - Scenarios are patches, not transforms
     - Seal-on-first-use prevents configuration mutations
     - No hidden defaults - complete specification required
+
+    Subclasses MUST set:
+    - PARAMS: ParameterSpace defining the model's parameter space
+
+    Subclasses MAY set:
+    - CONFIG: ConfigurationSpace defining runtime configuration (optional, defaults to empty)
+    - DEFAULT_SCENARIO: Name of default scenario (defaults to "baseline")
     """
 
-    DEFAULT_SCENARIO: str = "baseline"  # Subclasses can override
+    # Subclasses MUST set PARAMS
+    PARAMS: Optional[ParameterSpace] = None
+
+    # Subclasses MAY set CONFIG (defaults to empty)
+    CONFIG: Optional[ConfigurationSpace] = None
+
+    # Default scenario name
+    DEFAULT_SCENARIO: str = "baseline"
 
     def __init_subclass__(cls, **kwargs):
-        """Discover decorated methods during class definition."""
+        """Discover decorated methods and validate class attributes during class definition."""
         super().__init_subclass__(**kwargs)
+
+        # Skip validation for BaseModel itself
+        if cls.__name__ == 'BaseModel':
+            return
+
+        # Validate PARAMS (required)
+        if not hasattr(cls, 'PARAMS') or cls.PARAMS is None:
+            raise TypeError(
+                f"{cls.__name__}.PARAMS must be set to a ParameterSpace. "
+                f"Example: PARAMS = ParameterSpace((ParameterSpec(...), ...))"
+            )
+        if not isinstance(cls.PARAMS, ParameterSpace):
+            raise TypeError(
+                f"{cls.__name__}.PARAMS must be a ParameterSpace instance, "
+                f"got {type(cls.PARAMS).__name__}"
+            )
+
+        # Validate CONFIG if provided (optional)
+        if hasattr(cls, 'CONFIG') and cls.CONFIG is not None:
+            if not isinstance(cls.CONFIG, ConfigurationSpace):
+                raise TypeError(
+                    f"{cls.__name__}.CONFIG must be a ConfigurationSpace instance, "
+                    f"got {type(cls.CONFIG).__name__}"
+                )
 
         # Inherit from parent discoveries (don't clobber!)
         parent_outputs = getattr(cls, "_discovered_outputs", {})
@@ -64,17 +101,36 @@ class BaseModel(ABC):
                     # Validation already done in decorator
                     cls._discovered_scenarios[attr._scenario_name] = name
 
-    def __init__(self, space: ParameterSpace, config_space: ConfigurationSpace, base_config: ConfigurationSet):
-        """Initialize model with parameter space and configuration.
+    def __init__(self, *, base_config: Optional[ConfigurationSet] = None):
+        """Initialize model with optional base configuration override.
+
+        The parameter space and configuration space are taken from class attributes
+        PARAMS and CONFIG. If base_config is not provided, it defaults to the
+        defaults from CONFIG.
 
         Args:
-            space: The complete parameter space (M-space)
-            config_space: The configuration space (C-space)
-            base_config: Base configuration set (must be complete for config_space)
+            base_config: Optional ConfigurationSet to override defaults from CONFIG.
+                        If None, uses ConfigurationSet.from_defaults(cls.CONFIG).
+
+        Raises:
+            ValueError: If provided base_config space doesn't match cls.CONFIG
         """
-        self.space = space  # Immutable ParameterSpace
-        self.config_space = config_space  # Immutable ConfigurationSpace
-        self.base_config = base_config  # Immutable ConfigurationSet
+        # Get spaces from class attributes
+        self.space = type(self).PARAMS
+        self.config_space = type(self).CONFIG or ConfigurationSpace(tuple())
+
+        # Set base_config: use provided or create from defaults
+        if base_config is None:
+            self.base_config = ConfigurationSet.from_defaults(self.config_space)
+        else:
+            # Validate provided config matches our config_space
+            if base_config.space != self.config_space:
+                raise ValueError(
+                    f"Provided base_config space doesn't match {type(self).__name__}.CONFIG. "
+                    f"Expected space with {len(self.config_space.specs)} configs, "
+                    f"got space with {len(base_config.space.specs)} configs."
+                )
+            self.base_config = base_config
 
         # Mutable until sealed
         self._scenarios: Dict[str, ScenarioSpec] = {
@@ -329,7 +385,7 @@ class BaseModel(ABC):
             raise KeyError(f"Scenario '{name}' not found. Available: {available}")
         return self._scenarios[name]
 
-    def as_sim(self, scenario: str = "baseline") -> 'SimulatorBuilder':
+    def builder(self, scenario: str = "baseline") -> 'SimulatorBuilder':
         """Create a SimulatorBuilder for fluent API construction.
 
         This is the entry point for the fluent builder API. It returns a
@@ -345,7 +401,7 @@ class BaseModel(ABC):
         Example:
             >>> model = StochasticSEIR(...)
             >>> sim = (model
-            ...        .as_sim("lockdown")
+            ...        .builder("lockdown")
             ...        .fix(gamma=0.1)
             ...        .with_transforms(beta="log")
             ...        .build())

@@ -189,7 +189,7 @@ def example_1_basic_usage():
 
     # Build simulator with fluent API
     sim = (model
-           .as_sim("baseline")
+           .builder("baseline")
            .fix(population=10000, initial_infected=10)
            .build())
 
@@ -221,7 +221,7 @@ def example_2_transforms():
 
     # Build simulator with log transforms
     sim = (model
-           .as_sim("baseline")
+           .builder("baseline")
            .fix(population=10000, initial_infected=10)
            .with_transforms(beta="log", gamma="log")
            .build())
@@ -252,12 +252,12 @@ def example_3_scenarios():
 
     # Create simulators for different scenarios
     sim_baseline = (model
-                    .as_sim("baseline")
+                    .builder("baseline")
                     .fix(population=10000, initial_infected=10)
                     .build())
 
     sim_high_trans = (model
-                      .as_sim("high_transmission")
+                      .builder("high_transmission")
                       .fix(population=10000, initial_infected=10)
                       .build())
 
@@ -288,7 +288,7 @@ def example_4_reusable_builders():
 
     # Create base builder
     base = (model
-            .as_sim("baseline")
+            .builder("baseline")
             .fix(population=10000, initial_infected=10))
 
     # Create different simulators from same base
@@ -319,7 +319,7 @@ def example_5_custom_transforms():
 
     # Use custom transform instances for fine control
     sim = (model
-           .as_sim("baseline")
+           .builder("baseline")
            .fix(population=10000, initial_infected=10)
            .with_transforms(
                beta=LogTransform(),

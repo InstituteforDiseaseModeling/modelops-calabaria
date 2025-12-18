@@ -29,10 +29,13 @@ from modelops_calabaria.constants import SEED_COL
 class DummyModel(BaseModel):
     """Test model for wire loader tests."""
 
-    def __init__(self, space):
-        config_space = ConfigurationSpace([])
-        base_config = ConfigurationSet(config_space, {})
-        super().__init__(space, config_space, base_config)
+    PARAMS = ParameterSpace((
+        ParameterSpec("beta", 0.0, 1.0, "float"),
+        ParameterSpec("gamma", 0.0, 1.0, "float"),
+    ))
+
+    def __init__(self):
+        super().__init__()
 
     @model_output("infected")
     def infected(self, raw, seed):
@@ -266,7 +269,7 @@ class TestMakeWire:
 
         # Test filtering to specific output
         response = wire_fn(
-            params_M={"beta": 0.3},
+            params_M={"beta": 0.3, "gamma": 0.1},
             seed=42,
             outputs=["infected"]
         )
@@ -277,7 +280,7 @@ class TestMakeWire:
         # Test error on unknown output
         with pytest.raises(ValueError, match="Unknown outputs"):
             wire_fn(
-                params_M={"beta": 0.3},
+                params_M={"beta": 0.3, "gamma": 0.1},
                 seed=42,
                 outputs=["nonexistent"]
             )
@@ -310,7 +313,7 @@ class TestMakeWireFromManifest:
         wire_fn = make_wire_from_manifest("test_wire_loader:DummyModel", manifest)
 
         response = wire_fn(
-            params_M={"beta": 0.3},
+            params_M={"beta": 0.3, "gamma": 0.1},
             seed=42
         )
 
@@ -364,8 +367,8 @@ class TestStatelessExecution:
         wire_fn = make_wire(entry)
 
         # Multiple calls should work independently
-        response1 = wire_fn(params_M={"beta": 0.3}, seed=42)
-        response2 = wire_fn(params_M={"beta": 0.5}, seed=43)
+        response1 = wire_fn(params_M={"beta": 0.3, "gamma": 0.1}, seed=42)
+        response2 = wire_fn(params_M={"beta": 0.5, "gamma": 0.2}, seed=43)
 
         assert response1.provenance["seed"] == 42
         assert response2.provenance["seed"] == 43

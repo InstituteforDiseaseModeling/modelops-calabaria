@@ -4,7 +4,7 @@ This module provides SimulatorBuilder, a fluent API for constructing
 ModelSimulator instances with a clean, expressive syntax:
 
     sim = (model
-           .as_sim("baseline")
+           .builder("baseline")
            .fix(gamma=0.1)
            .with_transforms(beta="log")
            .build())
@@ -87,7 +87,7 @@ class SimulatorBuilder:
         >>>
         >>> # Build simulator with fluent API
         >>> sim = (model
-        ...        .as_sim("lockdown")           # Select scenario
+        ...        .builder("lockdown")           # Select scenario
         ...        .fix(gamma=0.1, population=1000)  # Fix some params
         ...        .with_transforms(beta="log")  # Transform others
         ...        .build())                      # Create ModelSimulator

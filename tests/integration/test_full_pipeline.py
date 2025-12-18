@@ -44,25 +44,22 @@ from modelops_calabaria import (
 class IntegrationTestModel(BaseModel):
     """Comprehensive test model for integration testing."""
 
-    def __init__(self, n_params=4):
-        """Create model with configurable parameter count."""
-        specs = [
-            ParameterSpec(f"rate_{i}", 0.01, 10.0, "float")
-            for i in range(n_params // 2)
-        ]
-        specs += [
-            ParameterSpec(f"prob_{i}", 0.01, 0.99, "float")
-            for i in range(n_params - n_params // 2)
-        ]
+    # Default 4-param space (2 rates, 2 probs)
+    PARAMS = ParameterSpace((
+        ParameterSpec("rate_0", 0.01, 10.0, "float"),
+        ParameterSpec("rate_1", 0.01, 10.0, "float"),
+        ParameterSpec("prob_0", 0.01, 0.99, "float"),
+        ParameterSpec("prob_1", 0.01, 0.99, "float"),
+    ))
 
-        space = ParameterSpace(specs)
-        config_space = ConfigurationSpace([
-            ConfigSpec("dt", default=0.1),
-            ConfigSpec("steps", default=100),
-        ])
-        base_config = ConfigurationSet(config_space, {"dt": 0.1, "steps": 100})
+    CONFIG = ConfigurationSpace((
+        ConfigSpec("dt", default=0.1),
+        ConfigSpec("steps", default=100),
+    ))
 
-        super().__init__(space, config_space, base_config)
+    def __init__(self):
+        """Create model with default parameter configuration."""
+        super().__init__()
 
     def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> dict:
         return {"params": params.to_dict(), "config": config.to_dict()}
@@ -107,6 +104,92 @@ class IntegrationTestModel(BaseModel):
         )
 
 
+class SmallIntegrationTestModel(BaseModel):
+    """Integration test model with 2 parameters for edge case testing."""
+
+    PARAMS = ParameterSpace((
+        ParameterSpec("rate_0", 0.01, 10.0, "float"),
+        ParameterSpec("prob_0", 0.01, 0.99, "float"),
+    ))
+
+    CONFIG = ConfigurationSpace((
+        ConfigSpec("dt", default=0.1),
+        ConfigSpec("steps", default=100),
+    ))
+
+    def __init__(self):
+        super().__init__()
+
+    def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> dict:
+        return {"params": params.to_dict(), "config": config.to_dict()}
+
+    def run_sim(self, state: dict, seed: int) -> dict:
+        result = sum(state["params"].values()) + seed
+        return {"result": result, "params": state["params"]}
+
+    @model_output("summary")
+    def extract_summary(self, raw: dict, seed: int) -> pl.DataFrame:
+        return pl.DataFrame({"total": [raw["result"]]})
+
+
+class MediumIntegrationTestModel(BaseModel):
+    """Integration test model with 10 parameters for performance testing."""
+
+    PARAMS = ParameterSpace(tuple(
+        ParameterSpec(f"rate_{i}", 0.01, 10.0, "float") for i in range(5)
+    ) + tuple(
+        ParameterSpec(f"prob_{i}", 0.01, 0.99, "float") for i in range(5)
+    ))
+
+    CONFIG = ConfigurationSpace((
+        ConfigSpec("dt", default=0.1),
+        ConfigSpec("steps", default=100),
+    ))
+
+    def __init__(self):
+        super().__init__()
+
+    def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> dict:
+        return {"params": params.to_dict(), "config": config.to_dict()}
+
+    def run_sim(self, state: dict, seed: int) -> dict:
+        result = sum(state["params"].values()) + seed
+        return {"result": result, "params": state["params"]}
+
+    @model_output("summary")
+    def extract_summary(self, raw: dict, seed: int) -> pl.DataFrame:
+        return pl.DataFrame({"total": [raw["result"]]})
+
+
+class LargeIntegrationTestModel(BaseModel):
+    """Integration test model with 20 parameters for large space testing."""
+
+    PARAMS = ParameterSpace(tuple(
+        ParameterSpec(f"rate_{i}", 0.01, 10.0, "float") for i in range(10)
+    ) + tuple(
+        ParameterSpec(f"prob_{i}", 0.01, 0.99, "float") for i in range(10)
+    ))
+
+    CONFIG = ConfigurationSpace((
+        ConfigSpec("dt", default=0.1),
+        ConfigSpec("steps", default=100),
+    ))
+
+    def __init__(self):
+        super().__init__()
+
+    def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> dict:
+        return {"params": params.to_dict(), "config": config.to_dict()}
+
+    def run_sim(self, state: dict, seed: int) -> dict:
+        result = sum(state["params"].values()) + seed
+        return {"result": result, "params": state["params"]}
+
+    @model_output("summary")
+    def extract_summary(self, raw: dict, seed: int) -> pl.DataFrame:
+        return pl.DataFrame({"total": [raw["result"]]})
+
+
 # ==============================================================================
 # Test 1: End-to-End Workflow
 # ==============================================================================
@@ -116,12 +199,12 @@ class TestEndToEndWorkflow:
 
     def test_basic_workflow(self):
         """Test: model → builder → simulator → outputs."""
-        # Create model
-        model = IntegrationTestModel(n_params=4)
+        # Create model (uses default 4 params)
+        model = IntegrationTestModel()
 
         # Build simulator with fluent API
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(prob_0=0.5, prob_1=0.7)
                .with_transforms(rate_0="log", rate_1="log")
                .build())
@@ -142,17 +225,17 @@ class TestEndToEndWorkflow:
 
     def test_workflow_with_scenario(self):
         """Test workflow with scenario application."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         # Build baseline simulator
         sim_baseline = (model
-                        .as_sim("baseline")
+                        .builder("baseline")
                         .fix(prob_0=0.5, prob_1=0.7)
                         .build())
 
         # Build doubled scenario simulator
         sim_doubled = (model
-                       .as_sim("doubled")
+                       .builder("doubled")
                        .fix(prob_0=0.5, prob_1=0.7)
                        .build())
 
@@ -171,10 +254,10 @@ class TestEndToEndWorkflow:
 
     def test_workflow_multiple_executions(self):
         """Test repeated executions produce consistent results."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(prob_0=0.5, prob_1=0.7)
                .build())
 
@@ -201,10 +284,10 @@ class TestMultipleCoordinateSystems:
 
     def test_identity_transforms(self):
         """Test with all identity transforms."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(prob_0=0.5, prob_1=0.7)
                .build())  # No transforms = all identity
 
@@ -216,10 +299,10 @@ class TestMultipleCoordinateSystems:
 
     def test_all_log_transforms(self):
         """Test with all log transforms."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(prob_0=0.5, prob_1=0.7)
                .with_transforms(rate_0="log", rate_1="log")
                .build())
@@ -237,10 +320,10 @@ class TestMultipleCoordinateSystems:
 
     def test_all_logit_transforms(self):
         """Test with all logit transforms."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(rate_0=1.0, rate_1=2.0)
                .with_transforms(prob_0="logit", prob_1="logit")
                .build())
@@ -259,10 +342,10 @@ class TestMultipleCoordinateSystems:
 
     def test_mixed_transforms(self):
         """Test with mixed transform types."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .with_transforms(
                    rate_0="log",
                    rate_1="identity",
@@ -279,10 +362,10 @@ class TestMultipleCoordinateSystems:
 
     def test_custom_transform_instances(self):
         """Test with custom transform instances."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(rate_1=2.0, prob_1=0.7)
                .with_transforms(
                    rate_0=LogTransform(),
@@ -305,11 +388,11 @@ class TestEdgeCases:
 
     def test_all_parameters_fixed_raises(self):
         """Test that fixing all parameters raises appropriate error."""
-        model = IntegrationTestModel(n_params=2)
+        model = SmallIntegrationTestModel()
 
         # Try to fix all parameters
         builder = (model
-                   .as_sim("baseline")
+                   .builder("baseline")
                    .fix(rate_0=1.0, prob_0=0.5))
 
         sim = builder.build()
@@ -324,9 +407,9 @@ class TestEdgeCases:
 
     def test_all_parameters_free(self):
         """Test with all parameters free."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
-        sim = model.as_sim("baseline").build()  # No fix() calls
+        sim = model.builder("baseline").build()  # No fix() calls
 
         assert sim.dim == 4
         assert len(sim.free_param_names) == 4
@@ -338,7 +421,7 @@ class TestEdgeCases:
 
     def test_large_parameter_space(self):
         """Test with large parameter space."""
-        model = IntegrationTestModel(n_params=20)
+        model = LargeIntegrationTestModel()
 
         # Fix half (first 10), leave half free (last 10)
         # Model with n_params=20 creates: rate_0..rate_9, prob_0..prob_9
@@ -346,7 +429,7 @@ class TestEdgeCases:
         fixed.update({f"prob_{i}": 0.5 for i in range(5)})
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(**fixed)
                .build())
 
@@ -361,10 +444,10 @@ class TestEdgeCases:
 
     def test_single_free_parameter(self):
         """Test with only one free parameter."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(rate_1=2.0, prob_0=0.5, prob_1=0.7)
                .build())
 
@@ -378,10 +461,10 @@ class TestEdgeCases:
 
     def test_bounds_with_various_transforms(self):
         """Test bounds calculation with all transform types."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .with_transforms(
                    rate_0="log",
                    rate_1="identity",
@@ -405,15 +488,15 @@ class TestScenarioComposition:
 
     def test_baseline_vs_modified_scenarios(self):
         """Test that scenarios produce different results."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim_baseline = (model
-                        .as_sim("baseline")
+                        .builder("baseline")
                         .fix(prob_0=0.5, prob_1=0.7)
                         .build())
 
         sim_doubled = (model
-                       .as_sim("doubled")
+                       .builder("doubled")
                        .fix(prob_0=0.5, prob_1=0.7)
                        .build())
 
@@ -430,15 +513,15 @@ class TestScenarioComposition:
 
     def test_config_patch_scenario(self):
         """Test scenario with config patches."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim_baseline = (model
-                        .as_sim("baseline")
+                        .builder("baseline")
                         .fix(rate_0=1.0, rate_1=2.0, prob_0=0.5, prob_1=0.7)
                         .build())
 
         sim_long = (model
-                    .as_sim("long_run")
+                    .builder("long_run")
                     .fix(rate_0=1.0, rate_1=2.0, prob_0=0.5, prob_1=0.7)
                     .build())
 
@@ -461,12 +544,12 @@ class TestPerformance:
 
     def test_simulator_creation_performance(self):
         """Test that simulator creation is fast."""
-        model = IntegrationTestModel(n_params=10)
+        model = MediumIntegrationTestModel()
 
         start = time.time()
         for _ in range(100):
             sim = (model
-                   .as_sim("baseline")
+                   .builder("baseline")
                    .fix(prob_0=0.5, prob_1=0.7)
                    .with_transforms(rate_0="log", rate_1="log")
                    .build())
@@ -479,10 +562,10 @@ class TestPerformance:
 
     def test_coordinate_transform_performance(self):
         """Test that coordinate transforms are fast."""
-        model = IntegrationTestModel(n_params=10)
+        model = MediumIntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .with_transforms(
                    rate_0="log",
                    rate_1="log",
@@ -514,11 +597,11 @@ class TestPerformance:
 
     def test_large_batch_execution(self):
         """Test executing simulator many times."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         # Use log transforms so z can be from standard normal
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(prob_0=0.5, prob_1=0.7)
                .with_transforms(rate_0="log", rate_1="log")
                .build())
@@ -555,9 +638,9 @@ class TestBuilderPatterns:
 
     def test_builder_reuse(self):
         """Test reusing builder to create multiple simulators."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
-        base = model.as_sim("baseline").fix(prob_0=0.5)
+        base = model.builder("baseline").fix(prob_0=0.5)
 
         sim1 = base.fix(prob_1=0.7).build()  # Fixes prob_0, prob_1 → free: rate_0, rate_1
         sim2 = base.fix(rate_0=1.0).build()  # Fixes prob_0, rate_0 → free: rate_1, prob_1
@@ -573,10 +656,10 @@ class TestBuilderPatterns:
 
     def test_builder_chaining(self):
         """Test long builder chains."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(prob_0=0.5)
                .fix(prob_1=0.7)
                .with_transforms(rate_0="log")
@@ -587,10 +670,10 @@ class TestBuilderPatterns:
 
     def test_builder_overwriting(self):
         """Test that later fix() calls override earlier ones."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(rate_0=1.0)
                .fix(rate_0=2.0)  # Override
                .fix(prob_0=0.5, prob_1=0.7)
@@ -614,17 +697,17 @@ class TestErrorHandling:
 
     def test_invalid_transform_name_raises(self):
         """Test that invalid transform name raises clear error."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         with pytest.raises(ValueError, match="Unknown transform 'invalid'"):
-            model.as_sim("baseline").with_transforms(rate_0="invalid").build()
+            model.builder("baseline").with_transforms(rate_0="invalid").build()
 
     def test_transform_for_fixed_param_raises(self):
         """Test that specifying transform for fixed param raises."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         builder = (model
-                   .as_sim("baseline")
+                   .builder("baseline")
                    .fix(rate_0=1.0)
                    .with_transforms(rate_0="log"))  # rate_0 is fixed!
 
@@ -633,10 +716,10 @@ class TestErrorHandling:
 
     def test_invalid_z_dimension_raises(self):
         """Test that wrong z dimension raises error."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         sim = (model
-               .as_sim("baseline")
+               .builder("baseline")
                .fix(prob_0=0.5, prob_1=0.7)
                .build())
 
@@ -649,7 +732,7 @@ class TestErrorHandling:
 
     def test_unknown_scenario_raises(self):
         """Test that unknown scenario raises error."""
-        model = IntegrationTestModel(n_params=4)
+        model = IntegrationTestModel()
 
         with pytest.raises(ValueError, match="Unknown scenario"):
-            model.as_sim("nonexistent").build()
+            model.builder("nonexistent").build()

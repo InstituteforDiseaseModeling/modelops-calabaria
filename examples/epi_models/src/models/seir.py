@@ -36,7 +36,7 @@ class StochasticSEIR(BaseModel):
         >>>
         >>> # Build a simulator with fixed population parameters
         >>> sim = (model
-        ...        .as_sim("baseline")
+        ...        .builder("baseline")
         ...        .fix(population=100000, initial_infected=10, initial_exposed=5)
         ...        .fix(simulation_days=180)
         ...        .with_transforms(beta="log", sigma="log", gamma="log")
@@ -52,66 +52,51 @@ class StochasticSEIR(BaseModel):
         >>> print(outputs["timeseries"])  # DataFrame with S, E, I, R over time
     """
 
-    @classmethod
-    def parameter_space(cls):
-        """Get the parameter space for this model."""
-        return ParameterSpace([
-            ParameterSpec(
-                "beta", 0.1, 2.0, "float",
-                doc="Transmission rate (contacts per day × probability of transmission)"
-            ),
-            ParameterSpec(
-                "sigma", 0.05, 0.5, "float",
-                doc="Incubation rate (1/latent period in days)"
-            ),
-            ParameterSpec(
-                "gamma", 0.05, 0.5, "float",
-                doc="Recovery rate (1/infectious period in days)"
-            ),
-            ParameterSpec(
-                "population", 1000, 1000000, "int",
-                doc="Total population size"
-            ),
-            ParameterSpec(
-                "initial_infected", 1, 100, "int",
-                doc="Initial number of infected individuals"
-            ),
-            ParameterSpec(
-                "initial_exposed", 0, 100, "int",
-                doc="Initial number of exposed individuals"
-            ),
-            ParameterSpec(
-                "simulation_days", 100, 365, "int",
-                doc="Number of days to simulate"
-            ),
-        ])
+    PARAMS = ParameterSpace((
+        ParameterSpec(
+            "beta", 0.1, 2.0, "float",
+            doc="Transmission rate (contacts per day × probability of transmission)"
+        ),
+        ParameterSpec(
+            "sigma", 0.05, 0.5, "float",
+            doc="Incubation rate (1/latent period in days)"
+        ),
+        ParameterSpec(
+            "gamma", 0.05, 0.5, "float",
+            doc="Recovery rate (1/infectious period in days)"
+        ),
+        ParameterSpec(
+            "population", 1000, 1000000, "int",
+            doc="Total population size"
+        ),
+        ParameterSpec(
+            "initial_infected", 1, 100, "int",
+            doc="Initial number of infected individuals"
+        ),
+        ParameterSpec(
+            "initial_exposed", 0, 100, "int",
+            doc="Initial number of exposed individuals"
+        ),
+        ParameterSpec(
+            "simulation_days", 100, 365, "int",
+            doc="Number of days to simulate"
+        ),
+    ))
 
-    @classmethod
-    def config_space(cls):
-        """Get the configuration space for this model."""
-        return ConfigurationSpace([
-            ConfigSpec(
-                "dt", default=0.1,
-                doc="Time step for simulation"
-            ),
-            ConfigSpec(
-                "output_frequency", default=1.0,
-                doc="Days between output points"
-            ),
-        ])
+    CONFIG = ConfigurationSpace((
+        ConfigSpec(
+            "dt", default=0.1,
+            doc="Time step for simulation"
+        ),
+        ConfigSpec(
+            "output_frequency", default=1.0,
+            doc="Days between output points"
+        ),
+    ))
 
-    def __init__(self, space=None, config_space=None, base_config=None):
-        """Initialize the SEIR model with parameter and configuration spaces."""
-        if space is None:
-            space = self.parameter_space()
-        if config_space is None:
-            config_space = self.config_space()
-        if base_config is None:
-            base_config = ConfigurationSet(config_space, {
-                "dt": 0.1,
-                "output_frequency": 1.0,
-            })
-        super().__init__(space, config_space, base_config)
+    def __init__(self):
+        """Initialize the SEIR model."""
+        super().__init__()
 
     def build_sim(self, params: ParameterSet, config: ConfigurationSet) -> Dict:
         """Build the simulation state from parameters and configuration.

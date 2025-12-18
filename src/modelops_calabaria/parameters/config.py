@@ -13,7 +13,7 @@ All types are immutable to prevent state bugs and ensure reproducibility.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Mapping
 from types import MappingProxyType
 
 
@@ -93,6 +93,14 @@ class ConfigurationSpace:
     def __len__(self) -> int:
         """Number of configurations in space."""
         return len(self.specs)
+
+    def defaults(self) -> Mapping[str, Any]:
+        """Get default values for all configurations.
+
+        Returns:
+            Immutable mapping of configuration names to their default values
+        """
+        return MappingProxyType({spec.name: spec.default for spec in self.specs})
 
     def to_dict(self) -> Dict[str, Any]:
         """Export configuration space as serializable dictionary.
@@ -209,3 +217,25 @@ class ConfigurationSet:
             >>> config = ConfigurationSet.new(space, dt=0.1, output_freq=1.0)
         """
         return cls(space, kwargs)
+
+    @classmethod
+    def from_defaults(cls, space: ConfigurationSpace, **overrides: Any) -> 'ConfigurationSet':
+        """Create ConfigurationSet from space defaults with optional overrides.
+
+        This is the recommended factory method for creating configuration sets.
+        It automatically fills in all defaults from the space, and you can
+        optionally override specific values.
+
+        Args:
+            space: The configuration space
+            **overrides: Optional configuration values to override defaults
+
+        Returns:
+            New ConfigurationSet instance with defaults and overrides
+
+        Example:
+            >>> config = ConfigurationSet.from_defaults(space, dt=0.05)  # Override dt, keep other defaults
+        """
+        vals = dict(space.defaults())
+        vals.update(overrides)
+        return cls(space, vals)

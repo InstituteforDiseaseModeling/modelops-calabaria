@@ -140,7 +140,8 @@ def make_wire(entry: EntryRecord) -> Callable:
             WireResponse with serialized outputs and provenance
         """
         # Create fresh model instance (stateless execution)
-        model = model_class(space)
+        # Model gets parameter space from class attribute PARAMS
+        model = model_class()
         model._seal()  # Ensure registries are frozen
 
         # Validate all scenarios exist
@@ -153,7 +154,8 @@ def make_wire(entry: EntryRecord) -> Callable:
                 )
 
         # Convert to ParameterSet (validates completeness)
-        pset = ParameterSet(space, params_M)
+        # Use model.space which comes from class attribute PARAMS
+        pset = ParameterSet(model.space, params_M)
 
         # Apply scenario stack with LWW semantics
         config = model.base_config
