@@ -405,8 +405,8 @@ def page_pair_contours(pdf: PdfPages,
 
             last_cs = cs
 
-            # Mark optimum with smaller star
-            ax.scatter([x_opt[i]], [x_opt[j]], marker="*", s=150,
+            # Mark optimum with X marker
+            ax.scatter([x_opt[i]], [x_opt[j]], marker="x", s=150,
                       color='red', edgecolor="white", linewidth=1, zorder=10)
 
             ax.set_xlabel(a.replace("param_", ""), fontsize=10)
@@ -417,7 +417,7 @@ def page_pair_contours(pdf: PdfPages,
         for k in range(len(chunk), len(axes)):
             fig.delaxes(axes[k])
 
-        title = "2D Loss Surfaces (optimum marked with star)"
+        title = "2D Loss Surfaces (optimum marked with X)"
         if threshold > 0:
             title += f"\nRed region: Δloss < {threshold:.1e}"
         fig.suptitle(title, fontsize=14, fontweight='bold')
