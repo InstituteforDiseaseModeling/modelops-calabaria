@@ -15,12 +15,10 @@ from modelops_calabaria.parameters import ParameterSpace, ParameterSpec
 
 
 class MockModel:
-    @classmethod
-    def parameter_space(cls):
-        return ParameterSpace(specs=[
-            ParameterSpec(name="beta", lower=0.1, upper=1.0, kind="float", doc="Transmission"),
-            ParameterSpec(name="gamma", lower=0.05, upper=0.5, kind="float", doc="Recovery"),
-        ])
+    PARAMS = ParameterSpace(specs=[
+        ParameterSpec(name="beta", lower=0.1, upper=1.0, kind="float", doc="Transmission"),
+        ParameterSpec(name="gamma", lower=0.05, upper=0.5, kind="float", doc="Recovery"),
+    ])
 
 
 def _write_registry(root: Path):

@@ -164,8 +164,8 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
         model_class = getattr(module, class_name)
 
         # Get parameter space if available
-        if hasattr(model_class, 'parameter_space'):
-            space = model_class.parameter_space()
+        if hasattr(model_class, 'PARAMS'):
+            space = model_class.PARAMS
             # Convert to serialized format for manifest
             for spec in space.specs:
                 param_specs.append({

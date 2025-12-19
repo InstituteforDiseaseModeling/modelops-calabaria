@@ -82,7 +82,7 @@ def optuna_command(
             project_root=project_root,
             allow_cwd_import=(not no_cwd_import)
         )
-        parameter_space = model_cls.parameter_space()
+        parameter_space = model_cls.PARAMS
     except (ModuleNotFoundError, AttributeError, ValueError) as e:
         typer.echo(f"Error: Could not import model '{resolved_model}': {e}", err=True)
         raise typer.Exit(1)

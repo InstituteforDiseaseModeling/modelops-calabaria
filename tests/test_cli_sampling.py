@@ -14,13 +14,11 @@ from modelops_calabaria.parameters import ParameterSpace, ParameterSpec
 class MockModel:
     """Mock model for testing."""
 
-    @classmethod
-    def parameter_space(cls):
-        return ParameterSpace(specs=[
-            ParameterSpec(name="alpha", lower=0.1, upper=1.0, kind="float", doc="Alpha parameter"),
-            ParameterSpec(name="beta", lower=0.5, upper=2.0, kind="float", doc="Beta parameter"),
-            ParameterSpec(name="count", lower=10, upper=100, kind="int", doc="Count parameter")
-        ])
+    PARAMS = ParameterSpace(specs=[
+        ParameterSpec(name="alpha", lower=0.1, upper=1.0, kind="float", doc="Alpha parameter"),
+        ParameterSpec(name="beta", lower=0.5, upper=2.0, kind="float", doc="Beta parameter"),
+        ParameterSpec(name="count", lower=10, upper=100, kind="int", doc="Count parameter")
+    ])
 
 
 class TestCLISampling:
@@ -121,8 +119,8 @@ class TestCLISampling:
 
     @patch("importlib.import_module")
     def test_model_without_parameter_space(self, mock_import):
-        """Test error when model doesn't have parameter_space method."""
-        # Mock a model without parameter_space
+        """Test error when model doesn't have PARAMS attribute."""
+        # Mock a model without PARAMS
         class BadModel:
             pass
 

@@ -125,7 +125,7 @@ def sobol_command(
         )
 
         # Get parameter space from the model
-        parameter_space = model_cls.parameter_space()
+        parameter_space = model_cls.PARAMS
     except (ModuleNotFoundError, AttributeError, ValueError) as e:
         typer.echo(f"Error: Could not import model '{model_class}': {e}", err=True)
         raise typer.Exit(1)
@@ -254,7 +254,7 @@ def grid_command(
         )
 
         # Get parameter space from the model
-        parameter_space = model_cls.parameter_space()
+        parameter_space = model_cls.PARAMS
     except (ModuleNotFoundError, AttributeError, ValueError) as e:
         typer.echo(f"Error: Could not import model '{model_class}': {e}", err=True)
         raise typer.Exit(1)

@@ -47,7 +47,7 @@ def main() -> None:
     if demo_model_path.exists():
         try:
             Model = load_symbol("examples/epi_models/src/models/seir.py:StochasticSEIR")
-            model_space = Model.parameter_space()
+            model_space = Model.PARAMS
             print(f"\nLoaded {Model.__name__} with {len(model_space.specs)} parameters:")
             for spec in model_space.specs[:5]:
                 rng = f"[{spec.lower}, {spec.upper}]" if spec.lower != spec.upper else f"= {spec.lower}"
