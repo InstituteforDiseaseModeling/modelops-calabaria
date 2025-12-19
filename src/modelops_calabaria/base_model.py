@@ -293,42 +293,88 @@ class BaseModel(ABC):
         return results
 
     @final
-    def simulate(self, params: ParameterSet, seed: int) -> Dict[str, pl.DataFrame]:
-        """THE ONLY ENTRY POINT - enforces complete ParameterSet.
+    def simulate(
+        self,
+        params: Union[ParameterSet, Dict[str, Any]],
+        seed: int,
+        config: Optional[Union[ConfigurationSet, Dict[str, Any]]] = None
+    ) -> Dict[str, pl.DataFrame]:
+        """Run simulation with optional config override.
 
-        This is the engineering constraint that prevents state bugs.
-        No dicts, no kwargs, no partial parameters allowed.
+        Convenience method that accepts dicts or typed objects for params and config.
+        Config parameter allows per-call overrides without creating new model instances.
 
         Args:
-            params: Complete ParameterSet for space M
+            params: Complete ParameterSet or dict of parameter values
             seed: Random seed
+            config: Optional ConfigurationSet or dict to override base_config
 
         Returns:
             Dictionary of output DataFrames
 
         Raises:
-            TypeError: If params is not a ParameterSet
+            TypeError: If params is not ParameterSet or dict
             ValueError: If params is incomplete
+
+        Example:
+            >>> # Quick run with dict params
+            >>> outputs = model.simulate({"beta": 0.08, "gamma": 0.1}, seed=42)
+            >>>
+            >>> # Override config for this run
+            >>> outputs = model.simulate(params, seed=42, config={"population": 5000})
         """
-        # Use default scenario
-        return self.simulate_scenario(self.DEFAULT_SCENARIO, params, seed)
+        # Convert dict to ParameterSet if needed
+        if isinstance(params, dict):
+            params = ParameterSet.from_dict(self.space, params)
+
+        # Convert dict to ConfigurationSet if needed
+        if config is not None and isinstance(config, dict):
+            config = ConfigurationSet.from_dict(self.config_space, config)
+
+        return self.simulate_scenario(self.DEFAULT_SCENARIO, params, seed, config=config)
 
     @final
-    def simulate_scenario(self, scenario: str, params: ParameterSet, seed: int) -> Dict[str, pl.DataFrame]:
-        """Run specific scenario with complete ParameterSet.
+    def simulate_scenario(
+        self,
+        scenario: str,
+        params: Union[ParameterSet, Dict[str, Any]],
+        seed: int,
+        config: Optional[Union[ConfigurationSet, Dict[str, Any]]] = None
+    ) -> Dict[str, pl.DataFrame]:
+        """Run specific scenario with optional config override.
+
+        Order of operations:
+        1. Start with base_config (or provided config if given)
+        2. Apply scenario patches to the effective config
+        3. Run simulation
 
         Args:
             scenario: Name of scenario to run
-            params: Complete ParameterSet for space M
+            params: Complete ParameterSet or dict of parameter values
             seed: Random seed
+            config: Optional config to use instead of base_config
 
         Returns:
             Dictionary of output DataFrames
 
         Raises:
             ValueError: If scenario is unknown
+
+        Example:
+            >>> # Scenario with config override
+            >>> outputs = model.simulate_scenario(
+            ...     "lockdown",
+            ...     {"beta": 0.08, "gamma": 0.1},
+            ...     seed=42,
+            ...     config={"population": 50000}
+            ... )
         """
         self._seal()
+
+        # Convert dict to ParameterSet if needed
+        if isinstance(params, dict):
+            params = ParameterSet.from_dict(self.space, params)
+
         self._validate(params)
 
         if scenario not in self._scenarios:
@@ -339,8 +385,15 @@ class BaseModel(ABC):
 
         spec = self._scenarios[scenario]
 
-        # Apply scenario patches (can FIX but not TRANSFORM)
-        params_patched, config_patched = spec.apply(params, self.base_config)
+        # Convert dict to ConfigurationSet if needed
+        if config is not None and isinstance(config, dict):
+            config = ConfigurationSet.from_dict(self.config_space, config)
+
+        # Use provided config or fall back to base_config
+        base = config if config is not None else self.base_config
+
+        # Apply scenario patches to the effective config
+        params_patched, config_patched = spec.apply(params, base)
 
         # Run simulation pipeline
         state = self.build_sim(params_patched, config_patched)
@@ -409,4 +462,39 @@ class BaseModel(ABC):
         """
         from .builder import SimulatorBuilder
         return SimulatorBuilder(_model=self, _scenario=scenario)
+
+    def __repr__(self) -> str:
+        """Rich representation showing model structure."""
+        lines = [
+            f"{self.__class__.__name__}",
+            f"Dimension: {len(self.PARAMS.specs)}",
+            "",
+            "Parameters:"
+        ]
+
+        for spec in self.PARAMS.specs:
+            # Mathematical interval notation with unicode
+            range_str = f"∈ [{spec.lower:.3g}, {spec.upper:.3g}]"
+            type_badge = spec.kind[0].upper()  # F for float, I for int
+
+            lines.append(
+                f"  • {spec.name:15s} {range_str:20s} ({type_badge})  {spec.doc}"
+            )
+
+        # Show config if present
+        if self.CONFIG and len(self.CONFIG.specs) > 0:
+            lines.append("")
+            lines.append(f"Configuration: {len(self.CONFIG.specs)} settings")
+            for spec in self.CONFIG.specs[:5]:  # Show first 5
+                lines.append(
+                    f"  • {spec.name:20s} = {spec.default!r:10}  {spec.doc}"
+                )
+            if len(self.CONFIG.specs) > 5:
+                lines.append(f"  ... and {len(self.CONFIG.specs) - 5} more")
+
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        """Same as repr for clean display."""
+        return self.__repr__()
 
