@@ -297,41 +297,45 @@ class BaseModel(ABC):
         self,
         params: Union[ParameterSet, Dict[str, Any]],
         seed: int,
-        config: Optional[Union[ConfigurationSet, Dict[str, Any]]] = None
+        config: Optional[ConfigurationSet] = None,
+        config_overrides: Optional[Dict[str, Any]] = None
     ) -> Dict[str, pl.DataFrame]:
-        """Run simulation with optional config override.
+        """Run simulation with optional config replacement or overrides.
 
-        Convenience method that accepts dicts or typed objects for params and config.
-        Config parameter allows per-call overrides without creating new model instances.
+        Convenience method that accepts dicts for params and supports two ways
+        to modify configuration: complete replacement or partial overrides.
 
         Args:
             params: Complete ParameterSet or dict of parameter values
             seed: Random seed
-            config: Optional ConfigurationSet or dict to override base_config
+            config: Optional ConfigurationSet for complete config replacement
+            config_overrides: Optional dict to patch specific config values on base_config
 
         Returns:
             Dictionary of output DataFrames
 
         Raises:
             TypeError: If params is not ParameterSet or dict
-            ValueError: If params is incomplete
+            ValueError: If params is incomplete, or both config and config_overrides provided
 
         Example:
             >>> # Quick run with dict params
             >>> outputs = model.simulate({"beta": 0.08, "gamma": 0.1}, seed=42)
             >>>
-            >>> # Override config for this run
-            >>> outputs = model.simulate(params, seed=42, config={"population": 5000})
+            >>> # Override specific config values (patch base_config)
+            >>> outputs = model.simulate(params, seed=42, config_overrides={"population": 5000})
+            >>>
+            >>> # Complete config replacement
+            >>> outputs = model.simulate(params, seed=42, config=my_config)
         """
         # Convert dict to ParameterSet if needed
         if isinstance(params, dict):
             params = ParameterSet.from_dict(self.space, params)
 
-        # Convert dict to ConfigurationSet if needed
-        if config is not None and isinstance(config, dict):
-            config = ConfigurationSet.from_dict(self.config_space, config)
-
-        return self.simulate_scenario(self.DEFAULT_SCENARIO, params, seed, config=config)
+        return self.simulate_scenario(
+            self.DEFAULT_SCENARIO, params, seed,
+            config=config, config_overrides=config_overrides
+        )
 
     @final
     def simulate_scenario(
@@ -339,34 +343,46 @@ class BaseModel(ABC):
         scenario: str,
         params: Union[ParameterSet, Dict[str, Any]],
         seed: int,
-        config: Optional[Union[ConfigurationSet, Dict[str, Any]]] = None
+        config: Optional[ConfigurationSet] = None,
+        config_overrides: Optional[Dict[str, Any]] = None
     ) -> Dict[str, pl.DataFrame]:
-        """Run specific scenario with optional config override.
+        """Run specific scenario with optional config replacement or overrides.
 
         Order of operations:
-        1. Start with base_config (or provided config if given)
-        2. Apply scenario patches to the effective config
-        3. Run simulation
+        1. Start with base_config
+        2. Apply config_overrides if provided (patches on base_config)
+        3. If config provided, use it instead (complete replacement)
+        4. Apply scenario patches to the effective config
+        5. Run simulation
 
         Args:
             scenario: Name of scenario to run
             params: Complete ParameterSet or dict of parameter values
             seed: Random seed
-            config: Optional config to use instead of base_config
+            config: Optional ConfigurationSet for complete config replacement
+            config_overrides: Optional dict to patch specific config values on base_config
 
         Returns:
             Dictionary of output DataFrames
 
         Raises:
-            ValueError: If scenario is unknown
+            ValueError: If scenario is unknown, or both config and config_overrides provided
 
         Example:
-            >>> # Scenario with config override
+            >>> # Scenario with config overrides (patch base_config)
             >>> outputs = model.simulate_scenario(
             ...     "lockdown",
             ...     {"beta": 0.08, "gamma": 0.1},
             ...     seed=42,
-            ...     config={"population": 50000}
+            ...     config_overrides={"population": 5000}
+            ... )
+            >>>
+            >>> # Scenario with complete config replacement
+            >>> outputs = model.simulate_scenario(
+            ...     "lockdown",
+            ...     params,
+            ...     seed=42,
+            ...     config=my_config
             ... )
         """
         self._seal()
@@ -383,14 +399,25 @@ class BaseModel(ABC):
                 f"Unknown scenario: {scenario}. Available: {available}"
             )
 
+        # Validate config/config_overrides usage
+        if config is not None and config_overrides is not None:
+            raise ValueError(
+                "Cannot specify both 'config' (complete replacement) and "
+                "'config_overrides' (partial patch). Use one or the other."
+            )
+
         spec = self._scenarios[scenario]
 
-        # Convert dict to ConfigurationSet if needed
-        if config is not None and isinstance(config, dict):
-            config = ConfigurationSet.from_dict(self.config_space, config)
-
-        # Use provided config or fall back to base_config
-        base = config if config is not None else self.base_config
+        # Determine effective config
+        if config is not None:
+            # Complete replacement
+            base = config
+        elif config_overrides is not None:
+            # Patch base_config with overrides
+            base = ConfigurationSet.from_defaults(self.config_space, **config_overrides)
+        else:
+            # Use base_config as-is
+            base = self.base_config
 
         # Apply scenario patches to the effective config
         params_patched, config_patched = spec.apply(params, base)
