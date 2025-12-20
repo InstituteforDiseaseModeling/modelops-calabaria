@@ -297,19 +297,22 @@ class BaseModel(ABC):
         self,
         params: Union[ParameterSet, Dict[str, Any]],
         seed: int,
-        config: Optional[ConfigurationSet] = None,
+        config: Optional[Union[ConfigurationSet, Dict[str, Any]]] = None,
         config_overrides: Optional[Dict[str, Any]] = None
     ) -> Dict[str, pl.DataFrame]:
         """Run simulation with optional config replacement or overrides.
 
-        Convenience method that accepts dicts for params and supports two ways
-        to modify configuration: complete replacement or partial overrides.
+        Convenience method that accepts dicts for params and supports flexible
+        configuration modification.
 
         Args:
             params: Complete ParameterSet or dict of parameter values
             seed: Random seed
-            config: Optional ConfigurationSet for complete config replacement
+            config: Optional config modification:
+                - Dict: Patches base_config with specified overrides
+                - ConfigurationSet: Complete replacement of base_config
             config_overrides: Optional dict to patch specific config values on base_config
+                (alternative to passing dict to config)
 
         Returns:
             Dictionary of output DataFrames
@@ -322,11 +325,12 @@ class BaseModel(ABC):
             >>> # Quick run with dict params
             >>> outputs = model.simulate({"beta": 0.08, "gamma": 0.1}, seed=42)
             >>>
-            >>> # Override specific config values (patch base_config)
+            >>> # Override specific config values (two equivalent ways)
+            >>> outputs = model.simulate(params, seed=42, config={"population": 5000})
             >>> outputs = model.simulate(params, seed=42, config_overrides={"population": 5000})
             >>>
             >>> # Complete config replacement
-            >>> outputs = model.simulate(params, seed=42, config=my_config)
+            >>> outputs = model.simulate(params, seed=42, config=my_config_set)
         """
         # Convert dict to ParameterSet if needed
         if isinstance(params, dict):
@@ -343,15 +347,15 @@ class BaseModel(ABC):
         scenario: str,
         params: Union[ParameterSet, Dict[str, Any]],
         seed: int,
-        config: Optional[ConfigurationSet] = None,
+        config: Optional[Union[ConfigurationSet, Dict[str, Any]]] = None,
         config_overrides: Optional[Dict[str, Any]] = None
     ) -> Dict[str, pl.DataFrame]:
         """Run specific scenario with optional config replacement or overrides.
 
         Order of operations:
         1. Start with base_config
-        2. Apply config_overrides if provided (patches on base_config)
-        3. If config provided, use it instead (complete replacement)
+        2. If config is dict or config_overrides provided: merge with base_config defaults
+        3. If config is ConfigurationSet: use as complete replacement
         4. Apply scenario patches to the effective config
         5. Run simulation
 
@@ -359,7 +363,9 @@ class BaseModel(ABC):
             scenario: Name of scenario to run
             params: Complete ParameterSet or dict of parameter values
             seed: Random seed
-            config: Optional ConfigurationSet for complete config replacement
+            config: Optional config modification:
+                - Dict: Patches base_config with specified overrides
+                - ConfigurationSet: Complete replacement of base_config
             config_overrides: Optional dict to patch specific config values on base_config
 
         Returns:
@@ -369,10 +375,16 @@ class BaseModel(ABC):
             ValueError: If scenario is unknown, or both config and config_overrides provided
 
         Example:
-            >>> # Scenario with config overrides (patch base_config)
+            >>> # Scenario with config overrides (two equivalent ways)
             >>> outputs = model.simulate_scenario(
             ...     "lockdown",
             ...     {"beta": 0.08, "gamma": 0.1},
+            ...     seed=42,
+            ...     config={"population": 5000}
+            ... )
+            >>> outputs = model.simulate_scenario(
+            ...     "lockdown",
+            ...     params,
             ...     seed=42,
             ...     config_overrides={"population": 5000}
             ... )
@@ -382,7 +394,7 @@ class BaseModel(ABC):
             ...     "lockdown",
             ...     params,
             ...     seed=42,
-            ...     config=my_config
+            ...     config=my_config_set
             ... )
         """
         self._seal()
@@ -410,8 +422,13 @@ class BaseModel(ABC):
 
         # Determine effective config
         if config is not None:
-            # Complete replacement
-            base = config
+            # If dict provided, treat as overrides (merge with base_config)
+            # If ConfigurationSet provided, use as complete replacement
+            if isinstance(config, dict):
+                base = ConfigurationSet.from_defaults(self.config_space, **config)
+            else:
+                # Complete replacement
+                base = config
         elif config_overrides is not None:
             # Patch base_config with overrides
             base = ConfigurationSet.from_defaults(self.config_space, **config_overrides)
