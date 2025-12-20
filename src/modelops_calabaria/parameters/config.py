@@ -239,3 +239,22 @@ class ConfigurationSet:
         vals = dict(space.defaults())
         vals.update(overrides)
         return cls(space, vals)
+
+    @classmethod
+    def from_dict(cls, space: ConfigurationSpace, values: Dict[str, Any]) -> 'ConfigurationSet':
+        """Factory method for creating ConfigurationSet from a dictionary.
+
+        Convenience method that accepts a dictionary of configuration values.
+
+        Args:
+            space: The configuration space
+            values: Dictionary mapping configuration names to values
+
+        Returns:
+            New ConfigurationSet instance
+
+        Example:
+            >>> config_dict = {"dt": 0.1, "output_freq": 1.0}
+            >>> config = ConfigurationSet.from_dict(space, config_dict)
+        """
+        return cls(space, values)

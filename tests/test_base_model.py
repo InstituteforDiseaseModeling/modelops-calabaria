@@ -213,13 +213,14 @@ class TestSealing:
 class TestParameterValidation:
     """Test parameter validation in simulate()."""
 
-    def test_requires_parameter_set(self):
-        """Test that simulate requires ParameterSet, not dict."""
+    def test_accepts_dict_params(self):
+        """Test that simulate accepts dicts and converts to ParameterSet."""
         model = SimpleTestModel()
 
-        # Try with dict - should fail
-        with pytest.raises(TypeError, match="requires ParameterSet"):
-            model.simulate({"alpha": 0.5}, seed=42)
+        # Dict params should work - gets converted to ParameterSet internally
+        outputs = model.simulate({"alpha": 0.5, "beta": 0.3, "steps": 50}, seed=42)
+        assert isinstance(outputs, dict)
+        assert "result" in outputs or len(outputs) > 0  # Has outputs
 
     def test_validates_parameter_space(self):
         """Test that ParameterSet must be for correct space."""

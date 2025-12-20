@@ -283,3 +283,22 @@ class ParameterSet:
             >>> pset = ParameterSet.new(space, alpha=0.5, beta=0.3, steps=50)
         """
         return cls(space, kwargs)
+
+    @classmethod
+    def from_dict(cls, space: ParameterSpace, values: Dict[str, Scalar]) -> 'ParameterSet':
+        """Factory method for creating ParameterSet from a dictionary.
+
+        Convenience method that accepts a dictionary of parameter values.
+
+        Args:
+            space: The parameter space
+            values: Dictionary mapping parameter names to values
+
+        Returns:
+            New ParameterSet instance
+
+        Example:
+            >>> params_dict = {"alpha": 0.5, "beta": 0.3, "steps": 50}
+            >>> pset = ParameterSet.from_dict(space, params_dict)
+        """
+        return cls(space, values)
