@@ -64,6 +64,8 @@ class TestCLISampling:
             assert "alpha" in param_set["params"]
             assert "beta" in param_set["params"]
             assert "count" in param_set["params"]
+            # Auto-generated seeds shouldn't include seed key (seeds generated at submission time)
+            assert "seed" not in param_set
 
     @patch("modelops_calabaria.cli.sampling.load_symbol")
     def test_grid_command_basic(self, mock_load_symbol):

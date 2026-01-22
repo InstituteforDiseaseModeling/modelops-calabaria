@@ -8,7 +8,7 @@ import numpy as np
 import typer
 from typer.models import OptionInfo
 
-from modelops_contracts import SimulationStudy
+from modelops_contracts import SimulationStudy, ParameterSetEntry
 
 from ..parameters import ParameterSpace, ParameterSpec
 from ..sampling.sobol import SobolSampler
@@ -141,9 +141,7 @@ def sobol_command(
 
     typer.echo(f"Generated {len(samples)} Sobol samples for {len(parameter_space.specs)} parameters")
 
-    # Create parameter sets as plain dicts (converting numpy types to Python types)
-    # Note: We use plain dicts here, not ParameterSet from contracts
-    # Calabaria's ParameterSet requires a ParameterSpace reference for validation
+    # Create parameter sets as ParameterSetEntry objects (converting numpy types to Python types)
     parameter_sets = []
     for params in samples:
         clean_params = {}
@@ -154,7 +152,7 @@ def sobol_command(
                 clean_params[k] = bool(v)
             else:
                 clean_params[k] = v
-        parameter_sets.append(clean_params)
+        parameter_sets.append(ParameterSetEntry(params=clean_params))
 
     # Create study (no bundle reference needed)
     # Convert file path format (models/seir.py) to module format (models.seir)
@@ -270,8 +268,7 @@ def grid_command(
 
     typer.echo(f"Generated {len(samples)} grid points for {len(parameter_space.specs)} parameters")
 
-    # Create parameter sets as plain dicts (converting numpy types to Python types)
-    # Note: We use plain dicts here, not ParameterSet from contracts
+    # Create parameter sets as ParameterSetEntry objects (converting numpy types to Python types)
     parameter_sets = []
     for params in samples:
         clean_params = {}
@@ -282,7 +279,7 @@ def grid_command(
                 clean_params[k] = bool(v)
             else:
                 clean_params[k] = v
-        parameter_sets.append(clean_params)
+        parameter_sets.append(ParameterSetEntry(params=clean_params))
 
     # Create study
     # Convert file path format (models/seir.py) to module format (models.seir)
@@ -336,15 +333,20 @@ def grid_command(
     )
 
 
+def _entry_to_dict(entry: ParameterSetEntry) -> dict:
+    """Convert ParameterSetEntry to dictionary for JSON serialization."""
+    result = {"params": entry.params}
+    if entry.seed is not None:
+        result["seed"] = entry.seed
+    return result
+
+
 def _study_to_dict(study: SimulationStudy) -> dict:
     """Convert SimulationStudy to dictionary for JSON serialization."""
     result = {
         "model": study.model,
         "scenario": study.scenario,
-        "parameter_sets": [
-            {"params": ps} if isinstance(ps, dict) else {"params": ps.params}
-            for ps in study.parameter_sets
-        ],
+        "parameter_sets": [_entry_to_dict(ps) for ps in study.parameter_sets],
         "sampling_method": study.sampling_method,
         "n_replicates": study.n_replicates,
         "outputs": study.outputs,
