@@ -211,21 +211,52 @@ def _run_parallel_trials(
                     seed_offset=0,
                 )
 
-                # Submit and gather for each target
+                # Submit simulations ONCE, then fan out aggregations
                 target_results_list = []
-                for target in targets_to_run:
-                    future = sim_service.submit_replicate_set(replicate_set, target)
-                    results = sim_service.gather([future])
+                bundle_ref = replicate_set.base_task.bundle_ref
+                param_id = params.param_id
 
-                    if results and not isinstance(results[0], Exception):
-                        trial_result = convert_to_trial_result(params, results[0])
-                        target_results_list.append((target, trial_result))
-                    else:
-                        error_msg = str(results[0]) if results else "No result"
-                        target_results_list.append((
-                            target,
-                            _failed_trial(params, error_msg[:200])
-                        ))
+                if multi_target and hasattr(sim_service, 'submit_replicates'):
+                    # Optimized path: run sims once, evaluate all targets
+                    sim_futures = sim_service.submit_replicates(replicate_set)
+
+                    # Submit all aggregations (parallel)
+                    agg_futures = []
+                    for target in targets_to_run:
+                        if target:
+                            agg_future = sim_service.submit_aggregation(
+                                sim_futures, target, bundle_ref, param_id
+                            )
+                            agg_futures.append((target, agg_future))
+
+                    # Gather all aggregation results in one shot
+                    if agg_futures:
+                        all_agg_results = sim_service.gather([f for _, f in agg_futures])
+                        for (target, _), result in zip(agg_futures, all_agg_results):
+                            if result and not isinstance(result, Exception):
+                                trial_result = convert_to_trial_result(params, result)
+                                target_results_list.append((target, trial_result))
+                            else:
+                                error_msg = str(result) if result else "No result"
+                                target_results_list.append((
+                                    target,
+                                    _failed_trial(params, error_msg[:200])
+                                ))
+                else:
+                    # Fallback: single target or service doesn't support optimized path
+                    for target in targets_to_run:
+                        future = sim_service.submit_replicate_set(replicate_set, target)
+                        results = sim_service.gather([future])
+
+                        if results and not isinstance(results[0], Exception):
+                            trial_result = convert_to_trial_result(params, results[0])
+                            target_results_list.append((target, trial_result))
+                        else:
+                            error_msg = str(results[0]) if results else "No result"
+                            target_results_list.append((
+                                target,
+                                _failed_trial(params, error_msg[:200])
+                            ))
 
                 # Combine results if multi-target
                 if multi_target:
@@ -310,6 +341,9 @@ def _run_batched_trials(
         param_lookup: dict[str, UniqueParameterSet] = {}
         param_order: list[str] = []
 
+        # Track sim futures per param for reuse across targets
+        param_sim_futures: dict[str, list] = {}
+
         for params in param_sets:
             if params.param_id not in param_lookup:
                 param_lookup[params.param_id] = params
@@ -332,9 +366,24 @@ def _run_batched_trials(
                 seed_offset=0,
             )
 
-            for target in targets_to_run:
-                future = sim_service.submit_replicate_set(replicate_set, target)
-                evaluation_plan.append(((params, target), future))
+            # Optimized path: submit sims once, then aggregations for each target
+            if multi_target and hasattr(sim_service, 'submit_replicates'):
+                # Submit simulations ONCE per param set
+                sim_futures = sim_service.submit_replicates(replicate_set)
+                param_sim_futures[params.param_id] = sim_futures
+
+                # Submit aggregation for each target (reusing same sim futures)
+                for target in targets_to_run:
+                    if target:
+                        agg_future = sim_service.submit_aggregation(
+                            sim_futures, target, job.bundle_ref, params.param_id
+                        )
+                        evaluation_plan.append(((params, target), agg_future))
+            else:
+                # Fallback: original behavior
+                for target in targets_to_run:
+                    future = sim_service.submit_replicate_set(replicate_set, target)
+                    evaluation_plan.append(((params, target), future))
 
         # Gather results
         logger.info("Gathering simulation results...")
