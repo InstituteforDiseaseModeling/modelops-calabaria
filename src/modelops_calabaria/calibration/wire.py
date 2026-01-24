@@ -96,6 +96,25 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService, prov_s
     n_replicates = job.algorithm_config.get("n_replicates", 1)
     batch_size = job.algorithm_config.get("batch_size", 16)
 
+    # Query actual Dask worker count to prevent graph pressure
+    # With many threads submitting to few workers, tasks pile up and
+    # the scheduler struggles with dependencies. Match threads to workers.
+    actual_workers = batch_size  # Default to batch_size if can't query
+    if hasattr(sim_service, 'client'):
+        try:
+            info = sim_service.client.scheduler_info()
+            actual_workers = len(info.get("workers", {}))
+            if actual_workers > 0:
+                logger.info(f"Detected {actual_workers} Dask workers")
+            else:
+                actual_workers = batch_size
+                logger.warning("No Dask workers detected, using batch_size")
+        except Exception as e:
+            logger.warning(f"Could not query Dask workers: {e}")
+
+    # Limit parallel threads to actual worker count to prevent graph pressure
+    parallel_threads = min(batch_size, actual_workers) if actual_workers > 0 else batch_size
+
     # Extract target entrypoints if specified
     target_entrypoints = []
     if job.target_spec and job.target_spec.data:
@@ -115,7 +134,7 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService, prov_s
             adapter=adapter,
             sim_service=sim_service,
             n_replicates=n_replicates,
-            n_workers=batch_size,  # Use batch_size as number of parallel workers
+            n_workers=parallel_threads,  # Use actual worker count to prevent graph pressure
             target_entrypoints=target_entrypoints,
             sim_entrypoint=sim_entrypoint,
         )
