@@ -1,12 +1,20 @@
 # Calibration Throughput Analysis
 
 **Date:** 2026-01-24
-**Status:** Investigation Complete
-**Related:** parallel_trial_execution.md
+**Status:** Optimization Complete - Results Mixed
+**Related:** parallel_trial_execution.md, gather_performance_regression.md
 
 ## Executive Summary
 
-Despite implementing parallel trial execution (1.67x improvement), calibration throughput remains limited at ~4.5 trials/min with low apparent CPU utilization (~5-10% per worker in Dask dashboard). This report analyzes the root causes and identifies optimization opportunities.
+We implemented the `submit_replicates()` + `submit_aggregation()` optimization to eliminate duplicate simulation execution (running sims twice for 2 targets). The optimization is now **working correctly**, but **per-worker efficiency did not improve** as expected.
+
+| Metric | Before | After | Expected |
+|--------|--------|-------|----------|
+| Tasks per trial | 12 | 7 | 7 ✓ |
+| Per-worker efficiency | 0.150 | 0.131 | 0.26+ |
+| Improvement | — | **-13%** | **+70%** |
+
+The optimization correctly reduces computational waste (42% fewer tasks), but overhead (serialization, scheduling, coordination) appears to dominate at our current scale. Further profiling is needed to understand why task reduction didn't translate to throughput gains.
 
 ## Current Architecture
 
@@ -238,42 +246,127 @@ Optimized: ~6.0 trials/min (2x improvement possible)
 
 ## Conclusion
 
-The primary throughput bottleneck is **duplicate simulation execution** (running sims twice for 2 targets). Fixing this alone would nearly double throughput. Combined with parallel target evaluation, a **2x improvement** is achievable without infrastructure changes.
+The primary throughput bottleneck was **duplicate simulation execution** (running sims twice for 2 targets). We fixed this with the `submit_replicates()` + `submit_aggregation()` pattern, reducing tasks per trial from 12 to 7 (42% reduction).
+
+**However, the expected 1.7x throughput improvement did not materialize.** Per-worker efficiency actually dropped 13% (0.150 → 0.131 trials/worker/min). This suggests:
+
+1. **Overhead dominates at small scale**: With only 5 replicates, serialization/scheduling overhead is proportionally large
+2. **Coordination costs matter**: The new pattern adds coordination between sim submission and aggregation submission
+3. **Dask locality effects**: Removing aggregation resource constraints may have hurt data locality
 
 The low CPU percentage in Dask dashboard is misleading - actual pod utilization is 70%. The remaining 30% overhead is inherent to distributed execution (serialization, networking, scheduling).
 
-## Implementation Status
+**Next steps to improve throughput:**
+- Profile to identify the new bottleneck (serialization? scheduling? network?)
+- Test with larger replicate counts to amortize overhead
+- Consider whether the optimization helps more at higher worker counts
 
-**BLOCKED**: The `submit_replicates()` + `submit_aggregation()` pattern in `DaskSimulationService` has bugs.
+## Measured Results (2026-01-24)
 
-### Failed Attempt (2026-01-24)
+**Status:** FIXED - Optimized pattern now working
 
-Commit `afe0e10` attempted to use the optimized pattern but caused:
-- Throughput dropped from ~3 trials/min to ~0.5 trials/min
-- Most worker threads stuck waiting indefinitely
+### Summary Table (Normalized Per Worker)
+
+| Configuration | Workers | Raw Throughput | Per-Worker Efficiency | Change vs Baseline |
+|---------------|---------|----------------|----------------------|-------------------|
+| **Baseline** (duplicate sims) | 20 | 3.0 trials/min | 0.150 trials/worker/min | — |
+| **Optimized** (sequential gather bug) | 8 | 1.0 trials/min | 0.125 trials/worker/min | **-17%** |
+| **Optimized** (wait() fix) | 8 | 1.05 trials/min | 0.131 trials/worker/min | **-13%** |
+
+### Key Finding
+
+**Per-worker efficiency is ~13% lower than baseline**, despite eliminating duplicate simulations. The optimization reduced tasks per trial from 12 to 7 (42% reduction), but this did not translate to improved per-worker throughput.
+
+### Detailed Measurements
+
+#### Baseline Configuration (20 workers, duplicate sims)
+```
+Job: calib-* (pre-optimization)
+Workers: 20 (5 pods × 4 workers)
+Throughput: 3.0 trials/min
+Tasks per trial: 12 (5 sims × 2 targets + 2 aggs)
+Per-worker efficiency: 0.150 trials/worker/min
+```
+
+#### Optimized with Sequential Gather Bug (8 workers)
+```
+Job: calib-9e98d08a
+Workers: 8 (2 pods × 4 workers)
+Throughput: 1.0 trials/min
+Tasks per trial: 7 (5 sims + 2 aggs)
+Per-worker efficiency: 0.125 trials/worker/min
+
+BUG: gather() iterated sequentially through futures with .result(),
+causing head-of-line blocking. See gather_performance_regression.md.
+```
+
+#### Optimized with wait() Fix (8 workers)
+```
+Job: calib-574e0975
+Workers: 8 (2 pods × 4 workers)
+Throughput: ~1.05 trials/min (estimated from burst patterns)
+Tasks per trial: 7 (5 sims + 2 aggs)
+Per-worker efficiency: 0.131 trials/worker/min
+
+Evidence of parallel wait working:
+- Trials complete in bursts (8 trials within 2 seconds)
+- No sequential completion pattern
+- Progress: 8→16→24→32... in rapid succession
+```
+
+### Why Per-Worker Efficiency Didn't Improve
+
+Despite cutting tasks per trial by 42%, per-worker efficiency dropped 13%. Possible causes:
+
+1. **Overhead dominates small jobs**: With only 5 replicates per trial, serialization/scheduling overhead is proportionally larger
+2. **Thread coordination costs**: The optimized pattern submits sims once, then multiple aggs - this may add coordination overhead
+3. **Fewer workers = less parallelism**: 8 workers vs 20 means less concurrent task execution
+4. **Data locality**: Removing aggregation resource constraint may have hurt worker locality
+
+### Conclusion
+
+The `submit_replicates()` + `submit_aggregation()` optimization is **working correctly** (no duplicate sims, parallel gather), but it does **not improve per-worker efficiency** under current conditions.
+
+**To realize the theoretical 2x improvement:**
+- Scale to more workers (the task reduction helps more at scale)
+- Increase replicates per trial (amortize overhead)
+- Profile to identify new bottlenecks (serialization? scheduling?)
+
+## Implementation History
+
+### Phase 1: Identify Duplicate Simulations
+- Discovered each target triggered redundant sim submissions
+- Created `submit_replicates()` + `submit_aggregation()` pattern
+
+### Phase 2: Initial Deployment (Failed)
+- Commit `afe0e10` deployed optimized pattern
+- Throughput dropped to ~0.5 trials/min
 - Reverted in commit `b99fc76`
 
-### Root Cause (To Investigate)
+### Phase 3: Fix Task Key Collisions
+- Added `run_id` parameter to prevent key collisions between threads
+- Commit `*` in `dask_simulation.py`
 
-The `submit_replicates()` and `submit_aggregation()` methods in `dask_simulation.py` have a TODO noting they lack integration tests. Possible issues:
-1. Key collision between threads submitting the same param_id's tasks
-2. Aggregation resource deadlock with multiple threads
-3. Dask dependency graph issues when separating sim submission from agg submission
-4. `gather()` type mismatch (expects `Future[SimReturn]`, given `Future[AggregationReturn]`)
+### Phase 4: Fix Aggregation Resource Constraint
+- Removed `resources={'aggregation': 1}` from `submit_aggregation()`
+- This was blocking worker locality (data had to move to workers with resource)
 
-### Next Steps
+### Phase 5: Fix Graph Pressure
+- Limited parallel threads to match actual worker count
+- Prevents overwhelming scheduler with too many concurrent submissions
 
-1. Add integration tests for `submit_replicates()` + `submit_aggregation()` pattern
-2. Test with single-threaded execution first
-3. Debug Dask task graph to identify blocking point
-4. May need to fix `DaskSimulationService` before wire.py can use the optimized pattern
+### Phase 6: Fix Sequential Gather (Critical)
+- **Bug:** `gather()` was calling `.result()` sequentially on each future
+- **Impact:** 50% throughput loss from head-of-line blocking
+- **Fix:** Use `wait(dask_futures)` then collect results (non-blocking)
+- See `gather_performance_regression.md` for full analysis
 
-## Files to Modify (When Bugs Fixed)
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `dask_simulation.py` | Fix `submit_replicates()` + `submit_aggregation()` pattern |
-| `wire.py` | Use optimized pattern once service is fixed |
+| `dask_simulation.py` | Fixed `submit_replicates()`, `submit_aggregation()`, and `gather()` |
+| `wire.py` | Use optimized pattern, limit threads to worker count |
 
 ## Appendix: Task Execution Timeline
 

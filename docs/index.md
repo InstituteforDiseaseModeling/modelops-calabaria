@@ -14,6 +14,7 @@
 - process/claude_guidance.md
 - process/parallel_trial_execution.md
 - process/calibration_throughput_analysis.md
+- process/gather_performance_regression.md
 
 ## Archive
 Legacy planning docs were moved to `docs/archive/` (design v2, MVP plans, pure functional design) for historical context.

@@ -8,6 +8,10 @@ Supports two execution modes:
 - PARALLEL_TRIALS=True (default): Multiple threads each run independent ask/tell
   loops, eliminating synchronization barriers for ~5x speedup
 - PARALLEL_TRIALS=False: Single-threaded batched execution (original behavior)
+
+Diagnostic mode:
+- Set ENABLE_PERF_REPORT=1 to generate a Dask performance report (HTML)
+- Report will be written to /tmp/dask-perf-report-{job_id}.html
 """
 
 import hashlib
@@ -16,6 +20,7 @@ import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -127,27 +132,47 @@ def calibration_wire(job: CalibrationJob, sim_service: SimulationService, prov_s
         "models.main/baseline",  # Default entrypoint
     )
 
-    # Choose execution mode
-    if PARALLEL_TRIALS:
-        n_completed = _run_parallel_trials(
-            job=job,
-            adapter=adapter,
-            sim_service=sim_service,
-            n_replicates=n_replicates,
-            n_workers=parallel_threads,  # Use actual worker count to prevent graph pressure
-            target_entrypoints=target_entrypoints,
-            sim_entrypoint=sim_entrypoint,
-        )
+    # Optional performance report for diagnostics
+    # Set ENABLE_PERF_REPORT=1 to generate HTML report showing transfer vs compute
+    perf_report_enabled = os.environ.get("ENABLE_PERF_REPORT", "").lower() in ("1", "true", "yes")
+    perf_report_path = f"/tmp/dask-perf-report-{job.job_id}.html"
+
+    if perf_report_enabled and hasattr(sim_service, 'client'):
+        try:
+            from dask.distributed import performance_report
+            perf_context = performance_report(filename=perf_report_path)
+            logger.info(f"Performance report enabled, will write to {perf_report_path}")
+        except ImportError:
+            logger.warning("Could not import performance_report, diagnostics disabled")
+            perf_context = nullcontext()
     else:
-        n_completed = _run_batched_trials(
-            job=job,
-            adapter=adapter,
-            sim_service=sim_service,
-            n_replicates=n_replicates,
-            batch_size=batch_size,
-            target_entrypoints=target_entrypoints,
-            sim_entrypoint=sim_entrypoint,
-        )
+        perf_context = nullcontext()
+
+    # Choose execution mode
+    with perf_context:
+        if PARALLEL_TRIALS:
+            n_completed = _run_parallel_trials(
+                job=job,
+                adapter=adapter,
+                sim_service=sim_service,
+                n_replicates=n_replicates,
+                n_workers=parallel_threads,  # Use actual worker count to prevent graph pressure
+                target_entrypoints=target_entrypoints,
+                sim_entrypoint=sim_entrypoint,
+            )
+        else:
+            n_completed = _run_batched_trials(
+                job=job,
+                adapter=adapter,
+                sim_service=sim_service,
+                n_replicates=n_replicates,
+                batch_size=batch_size,
+                target_entrypoints=target_entrypoints,
+                sim_entrypoint=sim_entrypoint,
+            )
+
+    if perf_report_enabled:
+        logger.info(f"Performance report written to {perf_report_path}")
 
     # Save final results
     save_calibration_results(job, adapter, prov_store=prov_store)
