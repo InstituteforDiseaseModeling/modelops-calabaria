@@ -242,12 +242,38 @@ The primary throughput bottleneck is **duplicate simulation execution** (running
 
 The low CPU percentage in Dask dashboard is misleading - actual pod utilization is 70%. The remaining 30% overhead is inherent to distributed execution (serialization, networking, scheduling).
 
-## Files to Modify
+## Implementation Status
+
+**BLOCKED**: The `submit_replicates()` + `submit_aggregation()` pattern in `DaskSimulationService` has bugs.
+
+### Failed Attempt (2026-01-24)
+
+Commit `afe0e10` attempted to use the optimized pattern but caused:
+- Throughput dropped from ~3 trials/min to ~0.5 trials/min
+- Most worker threads stuck waiting indefinitely
+- Reverted in commit `b99fc76`
+
+### Root Cause (To Investigate)
+
+The `submit_replicates()` and `submit_aggregation()` methods in `dask_simulation.py` have a TODO noting they lack integration tests. Possible issues:
+1. Key collision between threads submitting the same param_id's tasks
+2. Aggregation resource deadlock with multiple threads
+3. Dask dependency graph issues when separating sim submission from agg submission
+4. `gather()` type mismatch (expects `Future[SimReturn]`, given `Future[AggregationReturn]`)
+
+### Next Steps
+
+1. Add integration tests for `submit_replicates()` + `submit_aggregation()` pattern
+2. Test with single-threaded execution first
+3. Debug Dask task graph to identify blocking point
+4. May need to fix `DaskSimulationService` before wire.py can use the optimized pattern
+
+## Files to Modify (When Bugs Fixed)
 
 | File | Change |
 |------|--------|
-| `wire.py` | Use `submit_replicates()` + `submit_aggregation()` pattern |
-| `wire.py` | Gather all target results in single call |
+| `dask_simulation.py` | Fix `submit_replicates()` + `submit_aggregation()` pattern |
+| `wire.py` | Use optimized pattern once service is fixed |
 
 ## Appendix: Task Execution Timeline
 
