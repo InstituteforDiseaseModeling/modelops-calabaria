@@ -89,6 +89,8 @@ class OptunaAdapter(AlgorithmAdapter):
         Args:
             connection_info: Connection details from K8s secrets
         """
+        logger.info(f"Connecting infrastructure with keys: {list(connection_info.keys())}")
+
         # Get database URL from connection info
         db_url = connection_info.get("POSTGRES_URL")
         if not db_url:
@@ -105,13 +107,24 @@ class OptunaAdapter(AlgorithmAdapter):
             logger.info(f"Connected to PostgreSQL for study {self.study_name}")
 
         # Create or load existing study
-        self.study = optuna.create_study(
-            study_name=self.study_name,
-            storage=self.storage,
-            sampler=self.sampler,
-            direction="minimize",
-            load_if_exists=True,  # Resume if exists (fault tolerance)
-        )
+        logger.info(f"Creating/loading Optuna study: {self.study_name}")
+        try:
+            self.study = optuna.create_study(
+                study_name=self.study_name,
+                storage=self.storage,
+                sampler=self.sampler,
+                direction="minimize",
+                load_if_exists=True,  # Resume if exists (fault tolerance)
+            )
+        except Exception as e:
+            logger.error(f"Failed to create/load Optuna study '{self.study_name}': {e}")
+            logger.error(f"Storage type: {type(self.storage).__name__}")
+            if hasattr(self.storage, 'url'):
+                # Mask password in URL for logging
+                import re
+                masked_url = re.sub(r':[^:@]+@', ':***@', str(self.storage.url))
+                logger.error(f"Storage URL: {masked_url}")
+            raise
 
         # Log study status
         n_trials = len(self.study.trials)
@@ -119,6 +132,8 @@ class OptunaAdapter(AlgorithmAdapter):
             logger.info(f"Resuming study {self.study_name} with {n_trials} existing trials")
         else:
             logger.info(f"Starting new study {self.study_name}")
+
+        logger.info(f"connect_infrastructure completed successfully, study={self.study_name}")
 
     def ask(self, n: int) -> List[UniqueParameterSet]:
         """Ask Optuna for n parameter sets to evaluate.
