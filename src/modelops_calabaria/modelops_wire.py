@@ -63,9 +63,11 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
 
     # Convert entrypoint format if needed
     # ModelOps might send "models.seir/baseline" but registry has "models.seir:StochasticSEIR"
+    scenario_stack = ()
     if "/" in entrypoint:
-        # Extract just the module/class part, ignore scenario for now
-        entrypoint = entrypoint.split("/")[0]
+        parts = entrypoint.split("/")
+        entrypoint = parts[0]
+        scenario_stack = tuple(parts[1:])  # e.g. ("maternalvx_fr10",)
 
     # Check if this is a target entrypoint
     is_target = False
@@ -200,7 +202,7 @@ def wire_function(entrypoint: str, params: Dict[str, Any], seed: int) -> Dict[st
     result = wire_fn(
         params_M=params,
         seed=seed,
-        scenario_stack=(),
+        scenario_stack=scenario_stack,
         outputs=None,
     )
 
