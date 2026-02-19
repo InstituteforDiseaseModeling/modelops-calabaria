@@ -176,6 +176,12 @@ class TestCalibrationWire:
     @patch("modelops_calabaria.calibration.wire.create_algorithm_adapter")
     @patch("modelops_calabaria.calibration.wire.save_calibration_results")
     def test_calibration_wire_multi_target_combines_results(self, mock_save, mock_create_adapter):
+        """Test multi-target calibration via the optimized parallel path.
+
+        The production code path (PARALLEL_TRIALS=True, multi_target=True) uses
+        submit_replicates() to run sims once, then submit_aggregation() per target,
+        then gathers all aggregation results in one shot.
+        """
         job = CalibrationJob(
             job_id="multi_target_job",
             bundle_ref="sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -195,9 +201,19 @@ class TestCalibrationWire:
         )
 
         mock_sim_service = MagicMock()
-        future_a = MagicMock(name="future_a")
-        future_b = MagicMock(name="future_b")
-        mock_sim_service.submit_replicate_set.side_effect = [future_a, future_b]
+
+        # Mock Dask client so worker detection succeeds (avoids "No Dask workers" path)
+        mock_sim_service.client.scheduler_info.return_value = {
+            "workers": {"worker-0": {}, "worker-1": {}}
+        }
+
+        # Mock the optimized path: submit_replicates → submit_aggregation → gather
+        sim_futures = [MagicMock(name="sim_future_0"), MagicMock(name="sim_future_1")]
+        mock_sim_service.submit_replicates.return_value = sim_futures
+
+        agg_future_a = MagicMock(name="agg_future_a")
+        agg_future_b = MagicMock(name="agg_future_b")
+        mock_sim_service.submit_aggregation.side_effect = [agg_future_a, agg_future_b]
 
         agg_a = MagicMock()
         agg_a.loss = 0.1
@@ -221,9 +237,9 @@ class TestCalibrationWire:
 
         calibration_wire(job, mock_sim_service, prov_store=None)
 
-        # Ensure both targets submitted
-        assert mock_sim_service.submit_replicate_set.call_count == 2
-        mock_sim_service.gather.assert_called_once_with([future_a, future_b])
+        # Sims submitted once, then one aggregation per target
+        mock_sim_service.submit_replicates.assert_called_once()
+        assert mock_sim_service.submit_aggregation.call_count == 2
 
         # Verify combined TrialResult
         tell_args = mock_adapter.tell.call_args[0][0]
